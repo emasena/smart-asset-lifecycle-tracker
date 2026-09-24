@@ -60,6 +60,15 @@ Resources:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [POST]
+            AllowedOrigins:
+              - https://main.dx980x98nt3d5.amplifyapp.com
+              - http://localhost:5173
+              - http://localhost:5180
+            AllowedHeaders: ['*']
+            MaxAge: 300
 
   UserPool:
     Type: AWS::Cognito::UserPool
@@ -206,6 +215,112 @@ Resources:
             RestApiId: !Ref AssetApi
             Path: /assets/{assetId}
             Method: PUT
+
+  PhotoUploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub smart-asset-photo-upload-${Environment}
+      CodeUri: ../backend/asset_api/
+      Handler: photo_upload.lambda_handler
+      Environment:
+        Variables:
+          ASSET_PHOTO_BUCKET: !Ref AssetPhotoBucket
+      Policies:
+        - Statement:
+            - Sid: WritePendingPhotosOnly
+              Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource: !Sub ${AssetPhotoBucket.Arn}/pending/*
+      Events:
+        GetPhotoUploadForm:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AssetApi
+            Path: /photo-uploads
+            Method: POST
+
+  PhotoAnalysisFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub smart-asset-photo-analysis-${Environment}
+      CodeUri: ../backend/asset_api/
+      Handler: photo_analysis.lambda_handler
+      Timeout: 90
+      MemorySize: 512
+      Environment:
+        Variables:
+          ASSET_PHOTO_BUCKET: !Sub ${AWS::StackName}-photos-${AWS::AccountId}-${AWS::Region}
+          PHOTO_MODEL_ID: us.amazon.nova-lite-v1:0
+      Policies:
+        - Statement:
+            - Sid: ReadPendingPhotos
+              Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource: !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-photos-${AWS::AccountId}-${AWS::Region}/pending/*
+
+            - Sid: SavePhotoAnalysis
+              Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !GetAtt AssetTable.Arn
+
+            - Sid: InvokeNovaLiteProfile
+              Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-lite-v1:0
+
+            - Sid: InvokeNovaLiteModels
+              Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - !Sub arn:${AWS::Partition}:bedrock:us-east-1::foundation-model/amazon.nova-lite-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:us-east-2::foundation-model/amazon.nova-lite-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:us-west-2::foundation-model/amazon.nova-lite-v1:0
+              Condition:
+                StringEquals:
+                  bedrock:InferenceProfileArn: !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-lite-v1:0
+
+      Events:
+        NewAssetPhoto:
+          Type: S3
+          Properties:
+            Bucket: !Ref AssetPhotoBucket
+            Events: s3:ObjectCreated:Post
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: pending/
+
+  PhotoAnalysisApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub smart-asset-photo-analysis-api-${Environment}
+      CodeUri: ../backend/asset_api/
+      Handler: photo_analysis.api_handler
+      Environment:
+        Variables:
+          ASSET_PHOTO_BUCKET: !Sub ${AWS::StackName}-photos-${AWS::AccountId}-${AWS::Region}
+          PHOTO_MODEL_ID: us.amazon.nova-lite-v1:0
+      Policies:
+        - Statement:
+            - Sid: ReadPhotoAnalysis
+              Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource: !GetAtt AssetTable.Arn
+      Events:
+        GetPhotoAnalysis:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AssetApi
+            Path: /photo-analysis
+            Method: GET
 
   HealthFunction:
     Type: AWS::Serverless::Function

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Authenticator } from "@aws-amplify/ui-react";
 import { fetchAuthSession } from "aws-amplify/auth";
 
@@ -20,6 +20,7 @@ const emptyAsset = {
   assignedUserId: "",
   condition: "Good",
   status: "Available",
+  imageKey: "",
 };
 
 async function api(path, options = {}) {
@@ -39,7 +40,15 @@ function AssetApplication({ signOut, user }) {
   const [form, setForm] = useState(emptyAsset);
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
-const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [photo, setPhoto] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [photoMessage, setPhotoMessage] = useState("");
+  const photoInput = useRef(null);
+  const [analysis, setAnalysis] = useState(null);
+  const [analysisMessage, setAnalysisMessage] = useState("");
+  const [checkingAnalysis, setCheckingAnalysis] = useState(false);
+  const analysisTimer = useRef(null);
 
   const loadAssets = useCallback(async () => {
     try {
@@ -54,27 +63,202 @@ const [saving, setSaving] = useState(false);
   useEffect(() => {
     loadAssets();
   }, [loadAssets]);
+ useEffect(() => {
+  return () => {
 
+    if (analysisTimer.current) {
+      clearTimeout(analysisTimer.current);
+    }
+  };
+}, []);
   function updateField(event) {
     const { name, value } = event.target;
     setForm((current) => ({ ...current, [name]: name === "usefulLifeMonths" ? Number(value) : value }));
   }
 
+  function selectPhoto(event) {
+  const selected = event.target.files?.[0] || null;
+
+  if (analysisTimer.current) {
+    clearTimeout(analysisTimer.current);
+    analysisTimer.current = null;
+  }
+
+  setPhoto(selected);
+  setForm((current) => ({ ...current, imageKey: "" }));
+  setPhotoMessage("");
+  setAnalysis(null);
+  setAnalysisMessage("");
+  setCheckingAnalysis(false);
+}
+
+  async function checkPhotoAnalysis(photoKey, attempt = 0) {
+  if (attempt === 0) {
+    setCheckingAnalysis(true);
+    setAnalysis(null);
+  }
+
+  try {
+    const result = await api(
+      `/photo-analysis?key=${encodeURIComponent(photoKey)}`
+    );
+
+    if (result.status === "Processing") {
+      if (attempt >= 30) {
+        setAnalysisMessage(
+          "Analysis is taking longer than expected. You may continue entering the asset details."
+        );
+        setCheckingAnalysis(false);
+        return;
+      }
+
+      setAnalysisMessage("Bedrock is analyzing the photograph...");
+
+      analysisTimer.current = setTimeout(() => {
+        checkPhotoAnalysis(photoKey, attempt + 1);
+      }, 2000);
+
+      return;
+    }
+
+    if (result.status === "Ready" && result.suggestion) {
+      setAnalysis(result.suggestion);
+      setAnalysisMessage(
+        "Bedrock analysis is ready. Review the suggestions before applying them."
+      );
+      setCheckingAnalysis(false);
+      return;
+    }
+
+    setAnalysisMessage(
+      result.message || "The photograph analysis could not be completed."
+    );
+    setCheckingAnalysis(false);
+  } catch (error) {
+    setAnalysisMessage(error.message);
+    setCheckingAnalysis(false);
+  }
+}
+
+    async function uploadPhoto() {
+  if (!photo || uploading || saving) return;
+
+  if (
+    !["image/jpeg", "image/png"].includes(photo.type) ||
+    photo.size < 1 ||
+    photo.size > 3_750_000
+  ) {
+    setPhotoMessage(
+      "Choose a JPEG or PNG photo between 1 byte and 3.75 MB."
+    );
+    return;
+  }
+
+  setUploading(true);
+  setPhotoMessage("");
+  setAnalysis(null);
+  setAnalysisMessage("");
+
+  try {
+    const signed = await api("/photo-uploads", {
+      method: "POST",
+      body: JSON.stringify({
+        contentType: photo.type,
+      }),
+    });
+
+    const data = new FormData();
+
+    Object.entries(signed.fields).forEach(
+      ([name, value]) => data.append(name, value)
+    );
+
+    data.append("file", photo);
+
+    const upload = await fetch(signed.url, {
+      method: "POST",
+      body: data,
+    });
+
+    if (!upload.ok) {
+      throw new Error(
+        "Photo upload failed. Please try again."
+      );
+    }
+
+    setForm((current) => ({
+      ...current,
+      imageKey: signed.key,
+    }));
+
+    setPhotoMessage(
+      "Photo uploaded privately. Bedrock analysis has started."
+    );
+
+    await checkPhotoAnalysis(signed.key);
+  } catch (error) {
+    setPhotoMessage(error.message);
+    setCheckingAnalysis(false);
+  } finally {
+    setUploading(false);
+  }
+}
+function applyAnalysis() {
+  if (!analysis) return;
+
+  setForm((current) => ({
+    ...current,
+    category: analysis.category || current.category,
+    description: analysis.description || current.description,
+    condition: analysis.condition || current.condition,
+    usefulLifeMonths:
+      analysis.usefulLifeMonths !== undefined
+        ? Number(analysis.usefulLifeMonths)
+        : current.usefulLifeMonths,
+  }));
+
+  setAnalysisMessage(
+    "AI suggestions applied. Review or edit the values before creating the asset."
+  );
+}
+
+function rejectAnalysis() {
+  setAnalysis(null);
+  setAnalysisMessage(
+    "AI suggestions rejected. Enter the asset information manually."
+  );
+}
   async function createAsset(event) {
     event.preventDefault();
-  if (saving) return;
-  setSaving(true);
+    if (saving || uploading) return;
+    if (photo && !form.imageKey) {
+      setPhotoMessage("Upload the selected photo first, or remove it to create the asset without a photo.");
+      return;
+    }
+    setSaving(true);
+
     try {
       const payload = Object.fromEntries(Object.entries(form).map(([key, value]) => [key, value === "" ? null : value]));
       const result = await api("/assets", { method: "POST", body: JSON.stringify(payload) });
       setMessage(`${result.message} ID: ${result.assetId}`);
       setForm(emptyAsset);
+      setPhoto(null);
+      setAnalysis(null);
+setAnalysisMessage("");
+setCheckingAnalysis(false);
+
+if (analysisTimer.current) {
+  clearTimeout(analysisTimer.current);
+  analysisTimer.current = null;
+}
+      if (photoInput.current) photoInput.current.value = "";
+      setPhotoMessage("");
       await loadAssets();
     } catch (error) {
       setMessage(error.message);
     } finally {
-  setSaving(false);
-}
+      setSaving(false);
+    }
   }
 
   return (
@@ -93,7 +277,7 @@ const [saving, setSaving] = useState(false);
       <section className="panel">
         <h2>Register an asset manually</h2>
         <form onSubmit={createAsset}>
-          {Object.entries(form).map(([name, value]) => (
+          {Object.entries(form).filter(([name]) => name !== "imageKey").map(([name, value]) => (
             <label key={name}>
               <span>{name.replace(/([A-Z])/g, " $1")}</span>
               <input
@@ -105,9 +289,73 @@ const [saving, setSaving] = useState(false);
               />
             </label>
           ))}
-          <button type="submit" disabled={saving}>
-  {saving ? "Creating..." : "Create asset"}
-</button>
+          <div className="photo-upload">
+            <label htmlFor="asset-photo"><span>Asset photo (optional)</span></label>
+            <input id="asset-photo" ref={photoInput} type="file" accept="image/jpeg,image/png" disabled={uploading || saving} onChange={selectPhoto} />
+            <button type="button" className="secondary" disabled={!photo || uploading || saving} onClick={uploadPhoto}>
+              {uploading ? "Uploading..." : "Upload photo"}
+            </button>
+            {photoMessage && <p role="status">{photoMessage}</p>}
+            {analysisMessage && (
+  <p role="status">{analysisMessage}</p>
+)}
+
+{checkingAnalysis && (
+  <p className="analysis-status">
+    Analyzing photograph...
+  </p>
+)}
+
+{analysis && (
+  <div className="analysis-result">
+    <h3>Bedrock suggestions</h3>
+
+    <dl>
+      <dt>Category</dt>
+      <dd>{analysis.category || "—"}</dd>
+
+      <dt>Description</dt>
+      <dd>{analysis.description || "—"}</dd>
+
+      <dt>Condition</dt>
+      <dd>{analysis.condition || "—"}</dd>
+
+      <dt>Useful life</dt>
+      <dd>
+        {analysis.usefulLifeMonths
+          ? `${analysis.usefulLifeMonths} months`
+          : "—"}
+      </dd>
+
+      <dt>Maintenance category</dt>
+      <dd>{analysis.maintenanceCategory || "—"}</dd>
+
+      <dt>Review status</dt>
+      <dd>{analysis.reviewStatus || "—"}</dd>
+    </dl>
+
+    <div className="analysis-actions">
+      <button
+        type="button"
+        onClick={applyAnalysis}
+      >
+        Apply suggestions
+      </button>
+
+      <button
+        type="button"
+        className="secondary"
+        onClick={rejectAnalysis}
+      >
+        Reject suggestions
+      </button>
+    </div>
+  </div>
+)}
+          </div>
+          <button type="submit" disabled={saving || uploading}>
+            {saving ? "Creating..." : "Create asset"}
+          </button>
         </form>
       </section>
 
@@ -137,4 +385,3 @@ const [saving, setSaving] = useState(false);
 export default function App() {
   return <Authenticator>{({ signOut, user }) => <AssetApplication signOut={signOut} user={user} />}</Authenticator>;
 }
-

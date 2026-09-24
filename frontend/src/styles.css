@@ -34,6 +34,10 @@ h2 { margin-top: 0; }
 .eyebrow { color: #28756c; font-size: .78rem; font-weight: 800; letter-spacing: .13em; }
 .panel { background: white; border: 1px solid #dbe2ea; border-radius: 18px; padding: 24px; margin: 18px 0; box-shadow: 0 12px 35px rgba(40, 55, 75, .07); }
 .panel form { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.photo-upload { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.photo-upload label { width: 100%; }
+.photo-upload input { flex: 1 1 270px; }
+.photo-upload p { flex: 1 1 100%; margin: 0; color: #28756c; }
 label span { display: block; margin-bottom: 7px; color: #566176; font-size: .83rem; text-transform: capitalize; }
 input { width: 100%; border: 1px solid #cbd4df; border-radius: 9px; padding: 11px 12px; background: #fbfcfd; }
 input:focus { outline: 3px solid rgba(40, 117, 108, .18); border-color: #28756c; }
