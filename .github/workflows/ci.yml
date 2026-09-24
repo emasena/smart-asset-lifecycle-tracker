@@ -8,13 +8,19 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
-      - name: Unit tests
+          python-version: '3.11'
+      - name: Run Unit tests
         run: python -m unittest discover -s backend/tests -v
-      - uses: aws-actions/setup-sam@v2
+      - uses: aws-actions/setup-sam@v3
       - name: Validate SAM template
-        run: sam validate --template-file infrastructure/template.yaml
+        run: sam validate --template-file infrastructure/template.yaml--region us-east-1
+- name: Build SAM application
+        run: sam build --template-file infrastructure/template.yaml
 
