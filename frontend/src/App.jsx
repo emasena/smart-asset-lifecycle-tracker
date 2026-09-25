@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Authenticator } from "@aws-amplify/ui-react";
 import { fetchAuthSession } from "aws-amplify/auth";
+import "./photo-analysis.css";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -42,6 +43,7 @@ function AssetApplication({ signOut, user }) {
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [photo, setPhoto] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState("");
   const [uploading, setUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState("");
   const photoInput = useRef(null);
@@ -63,6 +65,21 @@ function AssetApplication({ signOut, user }) {
   useEffect(() => {
     loadAssets();
   }, [loadAssets]);
+
+  useEffect(() => {
+    if (!photo) {
+      setPhotoPreview("");
+      return undefined;
+    }
+
+    const previewUrl = URL.createObjectURL(photo);
+    setPhotoPreview(previewUrl);
+
+    return () => {
+      URL.revokeObjectURL(previewUrl);
+    };
+  }, [photo]);
+
  useEffect(() => {
   return () => {
 
@@ -300,56 +317,78 @@ if (analysisTimer.current) {
   <p role="status">{analysisMessage}</p>
 )}
 
-{checkingAnalysis && (
-  <p className="analysis-status">
-    Analyzing photograph...
-  </p>
-)}
+{(photoPreview || checkingAnalysis || analysis) && (
+  <div className="photo-analysis-grid">
+    {photoPreview && (
+      <article className="photo-preview-card">
+        <h3>Selected photograph</h3>
+        <img
+          className="photo-preview-image"
+          src={photoPreview}
+          alt="Selected asset"
+        />
+        <p>{photo?.name}</p>
+      </article>
+    )}
 
-{analysis && (
-  <div className="analysis-result">
-    <h3>Bedrock suggestions</h3>
+    <article className="analysis-result">
+      <h3>Bedrock suggestions</h3>
 
-    <dl>
-      <dt>Category</dt>
-      <dd>{analysis.category || "—"}</dd>
+      {checkingAnalysis && (
+        <p className="analysis-status">
+          Bedrock is analyzing the photograph...
+        </p>
+      )}
 
-      <dt>Description</dt>
-      <dd>{analysis.description || "—"}</dd>
+      {!checkingAnalysis && !analysis && (
+        <p>
+          {form.imageKey
+            ? "No AI suggestion is currently selected."
+            : "Upload the photograph to start the AI analysis."}
+        </p>
+      )}
 
-      <dt>Condition</dt>
-      <dd>{analysis.condition || "—"}</dd>
+      {analysis && (
+        <>
+          <dl>
+            <dt>Category</dt>
+            <dd>{analysis.category || "—"}</dd>
 
-      <dt>Useful life</dt>
-      <dd>
-        {analysis.usefulLifeMonths
-          ? `${analysis.usefulLifeMonths} months`
-          : "—"}
-      </dd>
+            <dt>Description</dt>
+            <dd>{analysis.description || "—"}</dd>
 
-      <dt>Maintenance category</dt>
-      <dd>{analysis.maintenanceCategory || "—"}</dd>
+            <dt>Condition</dt>
+            <dd>{analysis.condition || "—"}</dd>
 
-      <dt>Review status</dt>
-      <dd>{analysis.reviewStatus || "—"}</dd>
-    </dl>
+            <dt>Useful life</dt>
+            <dd>
+              {analysis.usefulLifeMonths
+                ? `${analysis.usefulLifeMonths} months`
+                : "—"}
+            </dd>
 
-    <div className="analysis-actions">
-      <button
-        type="button"
-        onClick={applyAnalysis}
-      >
-        Apply suggestions
-      </button>
+            <dt>Maintenance category</dt>
+            <dd>{analysis.maintenanceCategory || "—"}</dd>
 
-      <button
-        type="button"
-        className="secondary"
-        onClick={rejectAnalysis}
-      >
-        Reject suggestions
-      </button>
-    </div>
+            <dt>Review status</dt>
+            <dd>{analysis.reviewStatus || "—"}</dd>
+          </dl>
+
+          <div className="analysis-actions">
+            <button type="button" onClick={applyAnalysis}>
+              Apply suggestions
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={rejectAnalysis}
+            >
+              Reject suggestions
+            </button>
+          </div>
+        </>
+      )}
+    </article>
   </div>
 )}
           </div>
