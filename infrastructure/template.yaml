@@ -174,10 +174,16 @@ Resources:
       GatewayResponses:
         UNAUTHORIZED:
           StatusCode: '401'
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
           ResponseTemplates:
             application/json: '{"error":"Unauthorized","message":"Sign in to access this resource."}'
         ACCESS_DENIED:
           StatusCode: '403'
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
           ResponseTemplates:
             application/json: '{"error":"Forbidden","message":"You do not have permission to perform this action."}'
 
@@ -188,8 +194,16 @@ Resources:
       CodeUri: ../backend/asset_api/
       Handler: app.lambda_handler
       Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref AssetTable
+        - Statement:
+            - Sid: AssetTableReadWrite
+              Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:DeleteItem
+                - dynamodb:Scan
+                - dynamodb:TransactWriteItems
+              Resource: !GetAtt AssetTable.Arn
       Events:
         CreateAsset:
           Type: Api

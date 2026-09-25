@@ -14,6 +14,7 @@ TECHNICIAN_UPDATE_FIELDS = {
     "lastMaintenanceDate",
     "imageKey",
 }
+CREATE_RESTRICTED_FIELDS = {"assignedUserId", "department"}
 
 REQUIRED_FIELDS = {
     "assetTag",
@@ -58,14 +59,8 @@ def validate_asset(payload, partial=False):
     if not isinstance(payload, dict):
         raise ValidationError("Request body must be a JSON object.")
 
-    if "assetTag" in payload and (
-        not isinstance(payload["assetTag"], str)
-        or not payload["assetTag"].strip()
-    ):
-        raise ValidationError(
-            "Asset tag must contain a value.",
-            ["assetTag"],
-        )
+    if "assetTag" in payload and (not isinstance(payload["assetTag"], str) or not payload["assetTag"].strip()):
+        raise ValidationError("Asset tag must contain a value.", ["assetTag"])
 
     if not partial:
         missing = sorted(field for field in REQUIRED_FIELDS if payload.get(field) in (None, ""))
@@ -107,7 +102,6 @@ def validate_asset(payload, partial=False):
 def can_read(groups, claims, asset):
     if not groups.intersection(READ_GROUPS):
         return False
-
     if groups.intersection({"Administrator", "Auditor"}):
         return True
 
@@ -132,3 +126,9 @@ def validate_update_permissions(groups, changed_fields):
         return set(changed_fields).issubset(TECHNICIAN_UPDATE_FIELDS)
     return False
 
+
+def validate_create_permissions(groups, payload):
+    if groups.intersection(FULL_UPDATE_GROUPS):
+        return True
+    restricted_present = {field for field in CREATE_RESTRICTED_FIELDS if payload.get(field)}
+    return not restricted_present

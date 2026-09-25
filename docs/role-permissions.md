@@ -8,6 +8,7 @@
 | View department assets | No | Yes | Yes | Yes | Yes |
 | View all assets | No | Yes | No | Yes | Yes |
 | Create asset | No | Yes | No | Yes | No |
+| Set assignment fields (`assignedUserId`, `department`) on create | No | No | No | Yes | No |
 | Update operational fields | No | Yes | No | Yes | No |
 | Update financial/assignment fields | No | No | No | Yes | No |
 | Record maintenance | No | Planned | No | Planned | No |
@@ -37,4 +38,6 @@
 - `Auditor` conflicts with `Technician`.
 
 These policies prevent a user from modifying the same asset records they independently audit.
+
+A `Technician` creating a new asset cannot set `assignedUserId` or `department` — the same restriction that applies when updating an existing asset. Without this, asset creation would be a backdoor around the assignment-field lock on updates.
 

@@ -20,11 +20,15 @@ The starter implements the Week 1 foundation:
 
 See [`docs/architecture.md`](docs/architecture.md), [`docs/data-model.md`](docs/data-model.md), [`docs/role-permissions.md`](docs/role-permissions.md), and [`docs/sailpoint-integration.md`](docs/sailpoint-integration.md).
 
+## Architecture diagrams
+
+See [`docs/architecture/README.md`](docs/architecture/README.md) for the complete four-week target architecture and the weekly architecture progression diagrams.
+
 ## Prerequisites
 
 - AWS CLI configured for a non-production AWS account
 - AWS SAM CLI
-- Python 3.12
+- Python 3.11 (matches the Lambda `Runtime` in `infrastructure/template.yaml`; required for a native `sam build` — use `sam build --use-container` instead if you don't have 3.11 installed locally)
 - Node.js 20 or later
 
 ## Test and deploy the backend
@@ -37,6 +41,16 @@ sam deploy --guided
 ```
 
 Use stack name `smart-asset-tracker-dev` and a development AWS region. After deployment, copy the stack outputs into `frontend/.env` using `frontend/.env.example`.
+
+### Tear down after testing
+
+The stack has billable resources (DynamoDB, API Gateway, Cognito). Once you're done testing, delete it rather than leaving it running:
+
+```bash
+sam delete --stack-name smart-asset-tracker-dev
+```
+
+`AssetTable` has `DeletionPolicy: Retain`, so the DynamoDB table survives the stack delete — remove it manually from the AWS Console/CLI if you don't need the data anymore.
 
 ## Run the frontend
 

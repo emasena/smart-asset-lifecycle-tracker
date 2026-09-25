@@ -11,6 +11,7 @@ from domain import (  # noqa: E402
     can_read,
     parse_groups,
     validate_asset,
+    validate_create_permissions,
     validate_update_permissions,
 )
 
@@ -71,6 +72,14 @@ class DomainTests(unittest.TestCase):
     def test_technician_update_is_field_limited(self):
         self.assertTrue(validate_update_permissions({"Technician"}, {"condition", "status"}))
         self.assertFalse(validate_update_permissions({"Technician"}, {"purchaseValue"}))
+
+    def test_technician_cannot_set_assignment_fields_on_create(self):
+        self.assertFalse(validate_create_permissions({"Technician"}, {**VALID_ASSET, "assignedUserId": "user-1"}))
+        self.assertFalse(validate_create_permissions({"Technician"}, {**VALID_ASSET, "department": "IT"}))
+        self.assertTrue(validate_create_permissions({"Technician"}, VALID_ASSET))
+
+    def test_administrator_can_set_assignment_fields_on_create(self):
+        self.assertTrue(validate_create_permissions({"Administrator"}, {**VALID_ASSET, "assignedUserId": "user-1", "department": "IT"}))
 
 
 if __name__ == "__main__":

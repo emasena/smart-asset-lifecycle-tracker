@@ -1,26 +1,23 @@
 name: CI
 
 on:
-  push:
   pull_request:
+    branches: [develop]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
-      - name: Run Unit tests
+          python-version: "3.11"
+      - name: Unit tests
         run: python -m unittest discover -s backend/tests -v
       - uses: aws-actions/setup-sam@v3
       - name: Validate SAM template
-        run: sam validate --template-file infrastructure/template.yaml--region us-east-1
-- name: Build SAM application
+        run: sam validate --template-file infrastructure/template.yaml
+        env:
+          AWS_DEFAULT_REGION: us-east-1
+      - name: Build SAM application
         run: sam build --template-file infrastructure/template.yaml
-

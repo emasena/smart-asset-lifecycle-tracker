@@ -17,6 +17,7 @@ from domain import (
     can_read,
     parse_groups,
     validate_asset,
+    validate_create_permissions,
     validate_update_permissions,
 )
 
@@ -114,6 +115,16 @@ def _create(event, claims, groups):
 
     payload = _body(event)
     validate_asset(payload)
+
+    if not validate_create_permissions(groups, payload):
+        return response(
+            403,
+            {
+                "error": "Forbidden",
+                "message": "Only an Administrator can set assignment fields on a new asset.",
+            },
+        )
+
     payload["assetTag"] = _asset_tag(payload["assetTag"])
 
     if "Technician" in groups and "Administrator" not in groups:
@@ -138,12 +149,12 @@ def _create(event, claims, groups):
                 "message": "An asset with this asset tag already exists.",
             },
         )
+
     asset_id = f"AST-{uuid.uuid4().hex[:8].upper()}"
     now = datetime.now(timezone.utc).isoformat()
     item = {
         **payload,
-        "PK": f"ASSET#{asset_id}",
-        "SK": "METADATA",
+        **_asset_key(asset_id),
         "assetId": asset_id,
         "depreciationMethod": payload.get("depreciationMethod", "straight-line"),
         "reviewStatus": payload.get("reviewStatus", "ManualEntry"),
