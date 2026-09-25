@@ -62,7 +62,7 @@ Resources:
               SSEAlgorithm: AES256
       CorsConfiguration:
         CorsRules:
-          - AllowedMethods: [POST]
+          - AllowedMethods: [GET, POST]
             AllowedOrigins:
               - https://main.dx980x98nt3d5.amplifyapp.com
               - http://localhost:5173
@@ -193,6 +193,9 @@ Resources:
       FunctionName: !Sub smart-asset-api-${Environment}
       CodeUri: ../backend/asset_api/
       Handler: app.lambda_handler
+      Environment:
+        Variables:
+          ASSET_PHOTO_BUCKET: !Sub ${AWS::StackName}-photos-${AWS::AccountId}-${AWS::Region}
       Policies:
         - Statement:
             - Sid: AssetTableReadWrite
@@ -204,6 +207,13 @@ Resources:
                 - dynamodb:Scan
                 - dynamodb:TransactWriteItems
               Resource: !GetAtt AssetTable.Arn
+            - Sid: ReadAuthorizedAssetPhotos
+              Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource:
+                - !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-photos-${AWS::AccountId}-${AWS::Region}/pending/*
+                - !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-photos-${AWS::AccountId}-${AWS::Region}/assets/*
       Events:
         CreateAsset:
           Type: Api
@@ -222,6 +232,12 @@ Resources:
           Properties:
             RestApiId: !Ref AssetApi
             Path: /assets/{assetId}
+            Method: GET
+        GetAssetPhoto:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AssetApi
+            Path: /assets/{assetId}/photo
             Method: GET
         UpdateAsset:
           Type: Api

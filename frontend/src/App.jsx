@@ -50,6 +50,9 @@ function AssetApplication({ signOut, user }) {
   const [analysis, setAnalysis] = useState(null);
   const [analysisMessage, setAnalysisMessage] = useState("");
   const [checkingAnalysis, setCheckingAnalysis] = useState(false);
+  const [galleryItems, setGalleryItems] = useState([]);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryMessage, setGalleryMessage] = useState("");
   const analysisTimer = useRef(null);
 
   const loadAssets = useCallback(async () => {
@@ -65,6 +68,42 @@ function AssetApplication({ signOut, user }) {
   useEffect(() => {
     loadAssets();
   }, [loadAssets]);
+
+  const loadGallery = useCallback(async () => {
+    const photoAssets = assets.filter((asset) => asset.imageKey);
+    if (!photoAssets.length) {
+      setGalleryItems([]);
+      setGalleryMessage("");
+      return;
+    }
+
+    setGalleryLoading(true);
+    setGalleryMessage("");
+    const results = await Promise.allSettled(
+      photoAssets.map(async (asset) => {
+        const photoDetails = await api(
+          `/assets/${encodeURIComponent(asset.assetId)}/photo`
+        );
+        return { ...asset, ...photoDetails };
+      })
+    );
+    const visibleItems = results
+      .filter((result) => result.status === "fulfilled")
+      .map((result) => result.value);
+    const failedCount = results.length - visibleItems.length;
+
+    setGalleryItems(visibleItems);
+    if (failedCount) {
+      setGalleryMessage(
+        `${failedCount} photograph${failedCount === 1 ? "" : "s"} could not be loaded. Refresh the gallery to try again.`
+      );
+    }
+    setGalleryLoading(false);
+  }, [assets]);
+
+  useEffect(() => {
+    loadGallery();
+  }, [loadGallery]);
 
   useEffect(() => {
     if (!photo) {
@@ -396,6 +435,85 @@ if (analysisTimer.current) {
             {saving ? "Creating..." : "Create asset"}
           </button>
         </form>
+      </section>
+
+      <section className="panel gallery-panel">
+        <div className="section-heading">
+          <div>
+            <h2>Asset photo gallery</h2>
+            <p className="gallery-intro">
+              Only photographs for assets authorized by your Cognito role are shown.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="secondary gallery-refresh"
+            disabled={galleryLoading}
+            onClick={loadGallery}
+          >
+            {galleryLoading ? "Loading..." : "Refresh gallery"}
+          </button>
+        </div>
+
+        {galleryMessage && <div className="notice" role="status">{galleryMessage}</div>}
+        {!galleryLoading && !galleryItems.length && (
+          <p className="gallery-empty">No authorized assets with photographs were found.</p>
+        )}
+
+        <div className="asset-gallery" aria-busy={galleryLoading}>
+          {galleryItems.map((asset) => {
+            const suggestion = asset.suggestion;
+            return (
+              <article className="asset-photo-card" key={asset.assetId}>
+                <img
+                  className="asset-gallery-image"
+                  src={asset.photoUrl}
+                  alt={`${asset.assetTag} ${asset.category || "asset"}`}
+                  loading="lazy"
+                />
+                <div className="asset-photo-content">
+                  <div className="asset-photo-title">
+                    <div>
+                      <p className="asset-photo-tag">{asset.assetTag}</p>
+                      <h3>{asset.category || "Uncategorized asset"}</h3>
+                    </div>
+                    <span className="status">{asset.status}</span>
+                  </div>
+                  <p>{asset.description || "No description provided."}</p>
+                  <dl className="asset-photo-meta">
+                    <dt>Department</dt>
+                    <dd>{asset.department || "—"}</dd>
+                    <dt>Condition</dt>
+                    <dd>{asset.condition || "—"}</dd>
+                  </dl>
+
+                  <div className="gallery-analysis">
+                    <div className="gallery-analysis-heading">
+                      <h4>Bedrock insight</h4>
+                      <span className={`analysis-badge analysis-${(asset.analysisStatus || "processing").toLowerCase()}`}>
+                        {asset.analysisStatus || "Processing"}
+                      </span>
+                    </div>
+                    {suggestion ? (
+                      <dl>
+                        <dt>Detected category</dt>
+                        <dd>{suggestion.category || "—"}</dd>
+                        <dt>Description</dt>
+                        <dd>{suggestion.description || "—"}</dd>
+                        <dt>Maintenance</dt>
+                        <dd>{suggestion.maintenanceCategory || "—"}</dd>
+                        <dt>Review</dt>
+                        <dd>{suggestion.reviewStatus || "Needs review"}</dd>
+                      </dl>
+                    ) : (
+                      <p>The AI analysis is still processing or has no suggestion.</p>
+                    )}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
       </section>
 
       <section className="panel">
