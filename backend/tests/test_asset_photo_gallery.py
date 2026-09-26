@@ -64,6 +64,7 @@ class AssetPhotoGalleryTests(unittest.TestCase):
                 "description": "Modern business laptop on an office desk",
                 "condition": "Good",
                 "usefulLifeMonths": 48,
+                "estimatedValueUsd": 850,
                 "estimatedProductionDate": None,
                 "maintenanceCategory": "End-User Computing",
             },
