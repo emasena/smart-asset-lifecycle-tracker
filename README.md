@@ -33,6 +33,56 @@ See [`docs/architecture/README.md`](docs/architecture/README.md) for the complet
 
 ## Test and deploy the backend
 
+The non-production helper is the quickest way to deploy a complete local testing stack:
+
+```bash
+bash scripts/dev.sh up
+ENVIRONMENT=test bash scripts/dev.sh up
+```
+
+`up` runs the backend tests, validates and builds SAM with `--cached --parallel`,
+deploys without prompts, writes `frontend/.env` from that stack's outputs, and
+loads the ten assets in `sample-data/assets.json`. When Python 3.11 is not
+available locally, the build uses Docker with `--use-container`. Install and
+configure the AWS CLI and SAM CLI first; Docker is needed for the container build.
+The default region is `us-east-1`; set `AWS_REGION` to use another region.
+`ENVIRONMENT=test` uses its own `smart-asset-tracker-test` stack, Cognito pool,
+API, table, Lambda functions, and photo bucket. The helper accepts only `dev` and
+`test`; use a non-production AWS account or profile.
+
+| Command | Purpose |
+| --- | --- |
+| `bash scripts/dev.sh test` | Run the backend unit tests |
+| `bash scripts/dev.sh build` | Validate and build the SAM template |
+| `bash scripts/dev.sh deploy` | Deploy the built template without prompts |
+| `bash scripts/dev.sh env` | Refresh `frontend/.env` from stack outputs |
+| `bash scripts/dev.sh seed` | Add sample assets through the deployed asset Lambda |
+| `bash scripts/dev.sh sync` | Run `sam sync --watch` for Lambda iteration |
+| `bash scripts/dev.sh web` | Run `npm ci` and start the Vite dev server |
+| `bash scripts/dev.sh down` | Delete the chosen stack |
+| `bash scripts/dev.sh down --purge` | Delete the stack and its retained DynamoDB table |
+
+`seed` invokes the deployed Lambda with synthetic Administrator claims. The
+Lambda still validates every asset and reserves each tag atomically; a repeat
+run treats HTTP 409 for existing tags as expected. These claims are for the
+direct Lambda invocation only and do not grant browser users Administrator access.
+
+For example, create a confirmed user in the selected stack:
+
+```bash
+bash scripts/dev.sh user -e ema@example.com -g Administrator
+bash scripts/dev.sh user -e tech@example.com -g Technician -d IT
+```
+
+The command prompts for a password without echoing it. You may pass `-p PASSWORD`
+for scripting, but the password can then appear in shell history and process
+arguments. Passwords must meet the Cognito pool policy (12 characters, uppercase,
+lowercase, number, and symbol). Groups are `Employee`, `Technician`, `Manager`,
+`Administrator`, and `Auditor`. A department is needed for department-scoped
+Technician and Manager access. Use `bash scripts/dev.sh help` for command help.
+
+To run each SAM step manually:
+
 ```bash
 python3 -m unittest discover -s backend/tests -v
 sam validate --template-file infrastructure/template.yaml
@@ -40,7 +90,8 @@ sam build --template-file infrastructure/template.yaml
 sam deploy --guided
 ```
 
-Use stack name `smart-asset-tracker-dev` and a development AWS region. After deployment, copy the stack outputs into `frontend/.env` using `frontend/.env.example`.
+Use stack name `smart-asset-tracker-dev` and a development AWS region. After
+manual deployment, run `bash scripts/dev.sh env` to configure the frontend.
 
 ### Tear down after testing
 
@@ -50,7 +101,9 @@ The stack has billable resources (DynamoDB, API Gateway, Cognito). Once you're d
 sam delete --stack-name smart-asset-tracker-dev
 ```
 
-`AssetTable` has `DeletionPolicy: Retain`, so the DynamoDB table survives the stack delete — remove it manually from the AWS Console/CLI if you don't need the data anymore.
+`AssetTable` and the photo S3 bucket have `DeletionPolicy: Retain`. The helper's
+`down --purge` deletes the retained table after deleting the stack; the retained
+photo bucket and its contents must be removed separately if no longer needed.
 
 ## Run the frontend
 
