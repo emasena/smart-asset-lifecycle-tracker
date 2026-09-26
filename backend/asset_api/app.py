@@ -161,7 +161,11 @@ def _create(event, claims, groups):
         **_asset_key(asset_id),
         "assetId": asset_id,
         "depreciationMethod": payload.get("depreciationMethod", "straight-line"),
-        "reviewStatus": payload.get("reviewStatus", "ManualEntry"),
+        "depreciationMethod": payload.get(
+    "depreciationMethod",
+    "straight-line",
+),
+"createdBy": claims.get("sub"),
         "createdBy": claims.get("sub"),
         "createdAt": now,
         "updatedAt": now,
