@@ -58,7 +58,15 @@ class AssetPhotoGalleryTests(unittest.TestCase):
             "PK": "PHOTO#pending/technician-1/photo.jpg",
             "SK": "ANALYSIS",
             "status": "Ready",
-            "suggestion": {"category": "Laptop", "reviewStatus": "NeedsReview"},
+            "suggestion": {
+                "category": "Laptop",
+                "model": None,
+                "description": "Modern business laptop on an office desk",
+                "condition": "Good",
+                "usefulLifeMonths": 48,
+                "estimatedProductionDate": None,
+                "maintenanceCategory": "End-User Computing",
+            },
         }
 
     def response_body(self, result):

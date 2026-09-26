@@ -16,7 +16,8 @@ const emptyAsset = {
   inServiceDate: "",
   purchaseValue: "",
   salvageValue: "0.00",
-  usefulLifeMonths: 48,
+  usefulLifeMonths: "",
+  estimatedProductionDate: "",
   department: "",
   assignedUserId: "",
   condition: "Good",
@@ -129,7 +130,15 @@ function AssetApplication({ signOut, user }) {
 }, []);
   function updateField(event) {
     const { name, value } = event.target;
-    setForm((current) => ({ ...current, [name]: name === "usefulLifeMonths" ? Number(value) : value }));
+    setForm((current) => ({
+      ...current,
+      [name]:
+        name === "usefulLifeMonths"
+          ? value === ""
+            ? ""
+            : Number(value)
+          : value,
+    }));
   }
 
   function selectPhoto(event) {
@@ -265,12 +274,16 @@ function applyAnalysis() {
   setForm((current) => ({
     ...current,
     category: analysis.category || current.category,
+    model: analysis.model || current.model,
     description: analysis.description || current.description,
     condition: analysis.condition || current.condition,
     usefulLifeMonths:
-      analysis.usefulLifeMonths !== undefined
+      analysis.usefulLifeMonths !== undefined &&
+      analysis.usefulLifeMonths !== null
         ? Number(analysis.usefulLifeMonths)
         : current.usefulLifeMonths,
+    estimatedProductionDate:
+      analysis.estimatedProductionDate || current.estimatedProductionDate,
   }));
 
   setAnalysisMessage(
@@ -341,7 +354,14 @@ if (analysisTimer.current) {
                 value={value ?? ""}
                 type={name.includes("Date") ? "date" : name === "usefulLifeMonths" ? "number" : "text"}
                 onChange={updateField}
-                required={["assetTag", "description", "purchaseDate", "inServiceDate", "purchaseValue"].includes(name)}
+                required={[
+                  "assetTag",
+                  "description",
+                  "purchaseDate",
+                  "inServiceDate",
+                  "purchaseValue",
+                  "usefulLifeMonths",
+                ].includes(name)}
               />
             </label>
           ))}
@@ -393,13 +413,16 @@ if (analysisTimer.current) {
             <dt>Category</dt>
             <dd>{analysis.category || "—"}</dd>
 
+            <dt>Suggested model</dt>
+            <dd>{analysis.model || "Not identified"}</dd>
+
             <dt>Description</dt>
             <dd>{analysis.description || "—"}</dd>
 
             <dt>Condition</dt>
             <dd>{analysis.condition || "—"}</dd>
 
-            <dt>Useful life</dt>
+            <dt>Estimated useful life</dt>
             <dd>
               {analysis.usefulLifeMonths
                 ? `${analysis.usefulLifeMonths} months`
@@ -409,8 +432,8 @@ if (analysisTimer.current) {
             <dt>Maintenance category</dt>
             <dd>{analysis.maintenanceCategory || "—"}</dd>
 
-            <dt>Review status</dt>
-            <dd>{analysis.reviewStatus || "—"}</dd>
+            <dt>Estimated production date</dt>
+            <dd>{analysis.estimatedProductionDate || "Not identified"}</dd>
           </dl>
 
           <div className="analysis-actions">
@@ -498,12 +521,22 @@ if (analysisTimer.current) {
                       <dl>
                         <dt>Detected category</dt>
                         <dd>{suggestion.category || "—"}</dd>
+                        <dt>Suggested model</dt>
+                        <dd>{suggestion.model || "Not identified"}</dd>
                         <dt>Description</dt>
                         <dd>{suggestion.description || "—"}</dd>
+                        <dt>Condition</dt>
+                        <dd>{suggestion.condition || "—"}</dd>
+                        <dt>Estimated useful life</dt>
+                        <dd>
+                          {suggestion.usefulLifeMonths
+                            ? `${suggestion.usefulLifeMonths} months`
+                            : "—"}
+                        </dd>
+                        <dt>Estimated production date</dt>
+                        <dd>{suggestion.estimatedProductionDate || "Not identified"}</dd>
                         <dt>Maintenance</dt>
                         <dd>{suggestion.maintenanceCategory || "—"}</dd>
-                        <dt>Review</dt>
-                        <dd>{suggestion.reviewStatus || "Needs review"}</dd>
                       </dl>
                     ) : (
                       <p>The AI analysis is still processing or has no suggestion.</p>
