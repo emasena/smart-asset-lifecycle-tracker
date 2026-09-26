@@ -24,9 +24,17 @@ from domain import (
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
-TABLE = boto3.resource("dynamodb").Table(os.environ["ASSET_TABLE_NAME"])
-TRANSACTIONS = boto3.client("dynamodb")
+DYNAMODB = boto3.resource("dynamodb")
+TABLE = DYNAMODB.Table(os.environ["ASSET_TABLE_NAME"])
+try:
+    TRANSACTIONS = DYNAMODB.meta.client
+except AttributeError:
+    # Compatibility with simplified DynamoDB test doubles.
+    TRANSACTIONS = boto3.client("dynamodb")
+S3 = boto3.client("s3")
+PHOTO_BUCKET = os.environ.get("ASSET_PHOTO_BUCKET")
 SERIALIZER = TypeSerializer()
+PHOTO_URL_EXPIRES_IN = 300
 
 
 def response(status_code, body):
@@ -198,6 +206,59 @@ def _get(asset_id, claims, groups):
     return response(200, _clean_asset(item))
 
 
+def _photo_analysis_key(photo_key):
+    return {"PK": f"PHOTO#{photo_key}", "SK": "ANALYSIS"}
+
+
+def _get_photo(asset_id, claims, groups):
+    item = TABLE.get_item(Key=_asset_key(asset_id), ConsistentRead=True).get("Item")
+    if not item:
+        return response(404, {"error": "NotFound", "message": "Asset was not found."})
+    if not can_read(groups, claims, item):
+        return response(
+            403,
+            {
+                "error": "Forbidden",
+                "message": "You do not have permission to view this asset photograph.",
+            },
+        )
+
+    photo_key = item.get("imageKey")
+    if not photo_key:
+        return response(
+            404,
+            {"error": "NotFound", "message": "This asset does not have a photograph."},
+        )
+    if not PHOTO_BUCKET or not photo_key.startswith(("pending/", "assets/")):
+        LOGGER.error("Invalid photo configuration assetId=%s photoKey=%s", asset_id, photo_key)
+        return response(
+            500,
+            {"error": "InternalServerError", "message": "The asset photograph is unavailable."},
+        )
+
+    photo_url = S3.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": PHOTO_BUCKET, "Key": photo_key},
+        ExpiresIn=PHOTO_URL_EXPIRES_IN,
+    )
+    analysis = TABLE.get_item(
+        Key=_photo_analysis_key(photo_key),
+        ConsistentRead=True,
+    ).get("Item")
+
+    LOGGER.info("Asset photo viewed assetId=%s actorSub=%s", asset_id, claims.get("sub"))
+    return response(
+        200,
+        {
+            "assetId": asset_id,
+            "photoUrl": photo_url,
+            "expiresIn": PHOTO_URL_EXPIRES_IN,
+            "analysisStatus": analysis.get("status", "Processing") if analysis else "Processing",
+            "suggestion": analysis.get("suggestion") if analysis else None,
+        },
+    )
+
+
 def _list(event, claims, groups):
     params = event.get("queryStringParameters") or {}
     filters = Attr("SK").eq("METADATA")
@@ -296,6 +357,7 @@ def _update(event, asset_id, claims, groups):
 def lambda_handler(event, _context):
     method = event.get("httpMethod", "")
     asset_id = (event.get("pathParameters") or {}).get("assetId")
+    route = event.get("resource") or event.get("path") or ""
     claims, groups = _identity(event)
 
     if not claims.get("sub"):
@@ -304,6 +366,8 @@ def lambda_handler(event, _context):
     try:
         if method == "POST" and not asset_id:
             return _create(event, claims, groups)
+        if method == "GET" and asset_id and route.endswith("/photo"):
+            return _get_photo(asset_id, claims, groups)
         if method == "GET" and asset_id:
             return _get(asset_id, claims, groups)
         if method == "GET":
