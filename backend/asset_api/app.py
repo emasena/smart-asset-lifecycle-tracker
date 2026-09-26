@@ -26,11 +26,7 @@ LOGGER = logging.getLogger()
 LOGGER.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 DYNAMODB = boto3.resource("dynamodb")
 TABLE = DYNAMODB.Table(os.environ["ASSET_TABLE_NAME"])
-try:
-    TRANSACTIONS = DYNAMODB.meta.client
-except AttributeError:
-    # Compatibility with simplified DynamoDB test doubles.
-    TRANSACTIONS = boto3.client("dynamodb")
+TRANSACTIONS = boto3.client("dynamodb")
 S3 = boto3.client("s3")
 PHOTO_BUCKET = os.environ.get("ASSET_PHOTO_BUCKET")
 SERIALIZER = TypeSerializer()
