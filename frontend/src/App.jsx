@@ -17,6 +17,7 @@ const emptyAsset = {
   purchaseValue: "",
   salvageValue: "0.00",
   usefulLifeMonths: "",
+  estimatedValueUsd: "",
   estimatedProductionDate: "",
   department: "",
   assignedUserId: "",
@@ -133,7 +134,7 @@ function AssetApplication({ signOut, user }) {
     setForm((current) => ({
       ...current,
       [name]:
-        name === "usefulLifeMonths"
+        name === "usefulLifeMonths" || name === "estimatedValueUsd"
           ? value === ""
             ? ""
             : Number(value)
@@ -282,6 +283,11 @@ function applyAnalysis() {
       analysis.usefulLifeMonths !== null
         ? Number(analysis.usefulLifeMonths)
         : current.usefulLifeMonths,
+    estimatedValueUsd:
+      analysis.estimatedValueUsd !== undefined &&
+      analysis.estimatedValueUsd !== null
+        ? Number(analysis.estimatedValueUsd)
+        : current.estimatedValueUsd,
     estimatedProductionDate:
       analysis.estimatedProductionDate || current.estimatedProductionDate,
   }));
@@ -352,7 +358,14 @@ if (analysisTimer.current) {
               <input
                 name={name}
                 value={value ?? ""}
-                type={name.includes("Date") ? "date" : name === "usefulLifeMonths" ? "number" : "text"}
+                type={
+                  name.includes("Date")
+                    ? "date"
+                    : name === "usefulLifeMonths" ||
+                        name === "estimatedValueUsd"
+                      ? "number"
+                      : "text"
+                }
                 onChange={updateField}
                 required={[
                   "assetTag",
@@ -426,6 +439,13 @@ if (analysisTimer.current) {
             <dd>
               {analysis.usefulLifeMonths
                 ? `${analysis.usefulLifeMonths} months`
+                : "—"}
+            </dd>
+
+            <dt>Estimated value</dt>
+            <dd>
+              {analysis.estimatedValueUsd
+                ? `$${Number(analysis.estimatedValueUsd).toLocaleString("en-US")}`
                 : "—"}
             </dd>
 
@@ -531,6 +551,12 @@ if (analysisTimer.current) {
                         <dd>
                           {suggestion.usefulLifeMonths
                             ? `${suggestion.usefulLifeMonths} months`
+                            : "—"}
+                        </dd>
+                        <dt>Estimated value</dt>
+                        <dd>
+                          {suggestion.estimatedValueUsd
+                            ? `$${Number(suggestion.estimatedValueUsd).toLocaleString("en-US")}`
                             : "—"}
                         </dd>
                         <dt>Estimated production date</dt>

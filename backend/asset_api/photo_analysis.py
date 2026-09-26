@@ -45,6 +45,7 @@ Return only one valid JSON object with exactly these fields:
   "description": "string",
   "condition": "Good, Fair, Poor, or Unknown",
   "usefulLifeMonths": null,
+  "estimatedValueUsd": null,
   "estimatedProductionDate": null,
   "maintenanceCategory": "string"
 }
@@ -93,6 +94,9 @@ Additional rules:
 - Estimate usefulLifeMonths from the asset category, visible age, apparent
   condition, and a typical enterprise lifecycle.
 - usefulLifeMonths must be an integer between 12 and 120.
+- Estimate estimatedValueUsd from the identified category, model when known,
+  visible age, and condition. Return a whole-number USD estimate between 1
+  and 100000. This is an indicative estimate, not a purchase price or appraisal.
 - Set estimatedProductionDate in YYYY-MM-DD format only when an exact date is
   visible on the asset or its label. Otherwise return null.
 - Describe the asset in five to twelve words.
@@ -183,6 +187,17 @@ def validate_suggestion(raw_text):
         raise ValueError("Invalid estimated useful life.")
 
     suggestion["usefulLifeMonths"] = useful_life
+
+    estimated_value = result.get("estimatedValueUsd")
+
+    if (
+        type(estimated_value) is not int
+        or estimated_value < 1
+        or estimated_value > 100000
+    ):
+        raise ValueError("Invalid estimated USD value.")
+
+    suggestion["estimatedValueUsd"] = estimated_value
 
     production_date = result.get("estimatedProductionDate")
 
