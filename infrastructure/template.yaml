@@ -8,6 +8,11 @@ Parameters:
     Default: dev
     AllowedValues: [dev, test, prod]
 
+  MaintenanceNotificationEmail:
+    Type: String
+    Default: ''
+    Description: Optional email address for maintenance alerts
+
 Globals:
   Function:
     Runtime: python3.11
@@ -19,8 +24,27 @@ Globals:
       Variables:
         ASSET_TABLE_NAME: !Ref AssetTable
         LOG_LEVEL: INFO
+Conditions:
+  HasMaintenanceNotificationEmail: !Not
+    - !Equals
+      - !Ref MaintenanceNotificationEmail
+      - ''
 
 Resources:
+  MaintenanceNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub smart-asset-maintenance-${Environment}
+      DisplayName: Smart Asset Maintenance
+
+  MaintenanceEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasMaintenanceNotificationEmail
+    Properties:
+      Protocol: email
+      Endpoint: !Ref MaintenanceNotificationEmail
+      TopicArn: !Ref MaintenanceNotificationTopic
+
   AssetTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
@@ -62,14 +86,13 @@ Resources:
               SSEAlgorithm: AES256
       CorsConfiguration:
         CorsRules:
-          - AllowedMethods: [GET, POST]
+          - AllowedMethods: [POST]
             AllowedOrigins:
               - https://main.dx980x98nt3d5.amplifyapp.com
               - http://localhost:5173
               - http://localhost:5180
             AllowedHeaders: ['*']
             MaxAge: 300
-
   UserPool:
     Type: AWS::Cognito::UserPool
     Properties:
@@ -95,7 +118,6 @@ Resources:
           AttributeDataType: String
           Mutable: true
           Required: false
-
   UserPoolClient:
     Type: AWS::Cognito::UserPoolClient
     Properties:
@@ -114,7 +136,6 @@ Resources:
       ExplicitAuthFlows:
         - ALLOW_USER_SRP_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
-
   EmployeeGroup:
     Type: AWS::Cognito::UserPoolGroup
     Properties:
@@ -122,7 +143,6 @@ Resources:
       Description: View assigned assets and report problems
       UserPoolId: !Ref UserPool
       Precedence: 50
-
   TechnicianGroup:
     Type: AWS::Cognito::UserPoolGroup
     Properties:
@@ -130,7 +150,6 @@ Resources:
       Description: Create assets and update operational asset data
       UserPoolId: !Ref UserPool
       Precedence: 40
-
   ManagerGroup:
     Type: AWS::Cognito::UserPoolGroup
     Properties:
@@ -138,7 +157,6 @@ Resources:
       Description: View department assets and reports
       UserPoolId: !Ref UserPool
       Precedence: 30
-
   AdministratorGroup:
     Type: AWS::Cognito::UserPoolGroup
     Properties:
@@ -146,7 +164,6 @@ Resources:
       Description: Full asset and user administration
       UserPoolId: !Ref UserPool
       Precedence: 10
-
   AuditorGroup:
     Type: AWS::Cognito::UserPoolGroup
     Properties:
@@ -154,7 +171,6 @@ Resources:
       Description: Read-only audit access
       UserPoolId: !Ref UserPool
       Precedence: 20
-
   AssetApi:
     Type: AWS::Serverless::Api
     Properties:
@@ -186,16 +202,17 @@ Resources:
               Access-Control-Allow-Origin: "'*'"
           ResponseTemplates:
             application/json: '{"error":"Forbidden","message":"You do not have permission to perform this action."}'
-
   AssetApiFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub smart-asset-api-${Environment}
       CodeUri: ../backend/asset_api/
       Handler: app.lambda_handler
+      Timeout: 30
       Environment:
         Variables:
-          ASSET_PHOTO_BUCKET: !Sub ${AWS::StackName}-photos-${AWS::AccountId}-${AWS::Region}
+          MAINTENANCE_MODEL_ID: us.amazon.nova-lite-v1:0
+          ASSET_PHOTO_BUCKET: !Ref AssetPhotoBucket
       Policies:
         - Statement:
             - Sid: AssetTableReadWrite
@@ -205,8 +222,26 @@ Resources:
                 - dynamodb:PutItem
                 - dynamodb:DeleteItem
                 - dynamodb:Scan
+                - dynamodb:Query
                 - dynamodb:TransactWriteItems
               Resource: !GetAtt AssetTable.Arn
+            - Sid: InvokeMaintenanceNovaLiteProfile
+              Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-lite-v1:0
+
+            - Sid: InvokeMaintenanceNovaLiteModels
+              Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - !Sub arn:${AWS::Partition}:bedrock:us-east-1::foundation-model/amazon.nova-lite-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:us-east-2::foundation-model/amazon.nova-lite-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:us-west-2::foundation-model/amazon.nova-lite-v1:0
+              Condition:
+                StringEquals:
+                  bedrock:InferenceProfileArn: !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-lite-v1:0
             - Sid: ReadAuthorizedAssetPhotos
               Effect: Allow
               Action:
@@ -245,6 +280,24 @@ Resources:
             RestApiId: !Ref AssetApi
             Path: /assets/{assetId}
             Method: PUT
+        CreateMaintenance:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AssetApi
+            Path: /assets/{assetId}/maintenance
+            Method: POST
+        ListMaintenance:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AssetApi
+            Path: /assets/{assetId}/maintenance
+            Method: GET
+        GenerateMaintenanceRecommendation:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AssetApi
+            Path: /assets/{assetId}/maintenance-recommendation
+            Method: POST
 
   PhotoUploadFunction:
     Type: AWS::Serverless::Function
@@ -351,7 +404,38 @@ Resources:
             RestApiId: !Ref AssetApi
             Path: /photo-analysis
             Method: GET
+  MaintenanceSchedulerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub smart-asset-maintenance-scheduler-${Environment}
+      CodeUri: ../backend/asset_api/
+      Handler: maintenance_scheduler.lambda_handler
+      Timeout: 60
+      Environment:
+        Variables:
+          MAINTENANCE_TOPIC_ARN: !Ref MaintenanceNotificationTopic
+      Policies:
+        - Statement:
+            - Sid: ReadAssetsAndMaintenance
+              Effect: Allow
+              Action:
+                - dynamodb:Scan
+                - dynamodb:Query
+              Resource: !GetAtt AssetTable.Arn
 
+            - Sid: PublishMaintenanceNotifications
+              Effect: Allow
+              Action:
+                - sns:Publish
+              Resource: !Ref MaintenanceNotificationTopic
+      Events:
+        DailyMaintenanceCheck:
+          Type: Schedule
+          Properties:
+            Name: !Sub smart-asset-maintenance-daily-${Environment}
+            Description: Daily asset maintenance and cleaning check
+            Schedule: cron(0 13 * * ? *)
+            Enabled: true
   HealthFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -370,6 +454,9 @@ Resources:
               Authorizer: NONE
 
 Outputs:
+  MaintenanceNotificationTopicArn:
+    Description: SNS topic for maintenance notifications
+    Value: !Ref MaintenanceNotificationTopic
   ApiUrl:
     Description: REST API base URL
     Value: !Sub https://${AssetApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${Environment}

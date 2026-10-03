@@ -2,8 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Authenticator } from "@aws-amplify/ui-react";
 import { fetchAuthSession } from "aws-amplify/auth";
 
-import "./photo-analysis.css";
-
 const API_URL = import.meta.env.VITE_API_URL;
 
 const emptyAsset = {
@@ -37,8 +35,499 @@ async function api(path, options = {}) {
   return body;
 }
 
+const emptyMaintenance = {
+  maintenanceType: "Preventive",
+  description: "",
+  performedDate: "",
+  conditionAfter: "",
+  nextMaintenanceDate: "",
+  cost: "0.00",
+};
+
+function MaintenancePage({
+  asset,
+  onBack,
+  signOut,
+  user,
+}) {
+  const [history, setHistory] = useState([]);
+  const [schedule, setSchedule] = useState(null);
+  const [aiRecommendation, setAiRecommendation] =
+    useState(null);
+  const [maintenanceForm, setMaintenanceForm] =
+    useState(emptyMaintenance);
+  const [loading, setLoading] = useState(true);
+  const [savingMaintenance, setSavingMaintenance] =
+    useState(false);
+  const [generatingAi, setGeneratingAi] =
+    useState(false);
+  const [maintenanceMessage, setMaintenanceMessage] =
+    useState("");
+
+  const loadMaintenance = useCallback(async () => {
+    setLoading(true);
+
+    try {
+      const result = await api(
+        `/assets/${encodeURIComponent(
+          asset.assetId
+        )}/maintenance`
+      );
+
+      setHistory(result.items || []);
+      setSchedule(result.recommendation || null);
+      setMaintenanceMessage("");
+    } catch (error) {
+      setMaintenanceMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [asset.assetId]);
+
+  useEffect(() => {
+    loadMaintenance();
+  }, [loadMaintenance]);
+
+  function updateMaintenanceField(event) {
+    const { name, value } = event.target;
+
+    setMaintenanceForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  }
+
+  async function recordMaintenance(event) {
+    event.preventDefault();
+
+    if (savingMaintenance) return;
+
+    setSavingMaintenance(true);
+    setMaintenanceMessage("");
+
+    try {
+      const payload = Object.fromEntries(
+        Object.entries(maintenanceForm).map(
+          ([key, value]) => [
+            key,
+            value === "" ? null : value,
+          ]
+        )
+      );
+
+      const result = await api(
+        `/assets/${encodeURIComponent(
+          asset.assetId
+        )}/maintenance`,
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+        }
+      );
+
+      setMaintenanceMessage(result.message);
+      setMaintenanceForm(emptyMaintenance);
+      setAiRecommendation(null);
+      await loadMaintenance();
+    } catch (error) {
+      setMaintenanceMessage(error.message);
+    } finally {
+      setSavingMaintenance(false);
+    }
+  }
+
+  async function generateAiRecommendation() {
+    if (generatingAi) return;
+
+    setGeneratingAi(true);
+    setMaintenanceMessage("");
+
+    try {
+      const result = await api(
+        `/assets/${encodeURIComponent(
+          asset.assetId
+        )}/maintenance-recommendation`,
+        {
+          method: "POST",
+        }
+      );
+
+      setSchedule(result.schedule || null);
+      setAiRecommendation(
+        result.aiRecommendation || null
+      );
+      setMaintenanceMessage( "" );
+    } catch (error) {
+      setMaintenanceMessage(error.message);
+    } finally {
+      setGeneratingAi(false);
+    }
+  }
+
+  return (
+    <main>
+      <header>
+        <div>
+          <p className="eyebrow">
+            MAINTENANCE INTELLIGENCE
+          </p>
+          <h1>Maintenance history and recommendations</h1>
+          <p>
+            Signed in as{" "}
+            {user?.signInDetails?.loginId}
+          </p>
+        </div>
+
+        <div className="header-actions">
+          <button
+            type="button"
+            className="secondary"
+            onClick={onBack}
+          >
+            Back to inventory
+          </button>
+
+          <button
+            type="button"
+            className="secondary"
+            onClick={signOut}
+          >
+            Sign out
+          </button>
+        </div>
+      </header>
+
+      {maintenanceMessage && (
+        <div className="notice" role="status">
+          {maintenanceMessage}
+        </div>
+      )}
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>{asset.assetTag}</h2>
+            <p>{asset.description}</p>
+          </div>
+
+          <span className="status">
+            {asset.status || "Unknown"}
+          </span>
+        </div>
+
+        <dl className="asset-summary">
+          <div>
+            <dt>Asset ID</dt>
+            <dd>{asset.assetId}</dd>
+          </div>
+
+          <div>
+            <dt>Category</dt>
+            <dd>{asset.category || "—"}</dd>
+          </div>
+
+          <div>
+            <dt>Condition</dt>
+            <dd>{asset.condition || "—"}</dd>
+          </div>
+
+          <div>
+            <dt>In-service date</dt>
+            <dd>{asset.inServiceDate || "—"}</dd>
+          </div>
+
+          <div>
+            <dt>Current book value</dt>
+            <dd>
+              {asset.depreciation?.currentBookValue
+                ? `$${asset.depreciation.currentBookValue}`
+                : "—"}
+            </dd>
+          </div>
+
+          <div>
+            <dt>Replacement date</dt>
+            <dd>
+              {asset.depreciation
+                ?.estimatedReplacementDate || "—"}
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="maintenance-grid">
+        <article className="panel">
+          <div className="section-heading">
+            <h2>Calculated schedule</h2>
+
+            {schedule?.maintenanceStatus && (
+              <span
+                className={`maintenance-status maintenance-${schedule.maintenanceStatus.toLowerCase()}`}
+              >
+                {schedule.maintenanceStatus}
+              </span>
+            )}
+          </div>
+
+          {loading ? (
+            <p>Loading maintenance schedule...</p>
+          ) : schedule ? (
+            <dl className="recommendation-details">
+              <dt>Priority</dt>
+              <dd>{schedule.priority || "—"}</dd>
+
+              <dt>Recommended cleaning</dt>
+              <dd>
+                {schedule.recommendedCleaningDate || "—"}
+              </dd>
+
+              <dt>Recommended maintenance</dt>
+              <dd>
+                {schedule.recommendedMaintenanceDate ||
+                  "—"}
+              </dd>
+
+              <dt>Days until maintenance</dt>
+              <dd>
+                {schedule.daysUntilMaintenance ??
+                  "—"}
+              </dd>
+
+              <dt>Recommendation</dt>
+              <dd>
+                {schedule.recommendation ||
+                  schedule.message ||
+                  "—"}
+              </dd>
+            </dl>
+          ) : (
+            <p>No schedule is available.</p>
+          )}
+        </article>
+
+        <article className="panel">
+          <div className="section-heading">
+            <h2>Bedrock recommendation</h2>
+
+            <button
+              type="button"
+              onClick={generateAiRecommendation}
+              disabled={generatingAi}
+            >
+              {generatingAi
+                ? "Generating..."
+                : "Generate recommendation"}
+            </button>
+          </div>
+
+          {aiRecommendation ? (
+            <div className="ai-maintenance-result">
+              <dl className="recommendation-details">
+                <dt>Risk level</dt>
+                <dd>{aiRecommendation.riskLevel}</dd>
+
+                <dt>Review status</dt>
+                <dd>
+                  {aiRecommendation.reviewStatus}
+                </dd>
+
+                <dt>Rationale</dt>
+                <dd>{aiRecommendation.rationale}</dd>
+              </dl>
+
+              <h3>Recommended actions</h3>
+
+              <ol>
+                {aiRecommendation.recommendedActions.map(
+                  (action) => (
+                    <li key={action}>{action}</li>
+                  )
+                )}
+              </ol>
+
+
+            </div>
+          ) : (
+            <p>
+              Generate an AI-assisted recommendation using
+              the asset condition, maintenance history, and
+              calculated schedule.
+            </p>
+          )}
+        </article>
+      </section>
+
+      <section className="panel">
+        <h2>Record maintenance</h2>
+
+        <form
+          className="maintenance-form"
+          onSubmit={recordMaintenance}
+        >
+          <label>
+            <span>Maintenance type</span>
+            <select
+              name="maintenanceType"
+              value={maintenanceForm.maintenanceType}
+              onChange={updateMaintenanceField}
+            >
+              <option>Preventive</option>
+              <option>Corrective</option>
+              <option>Inspection</option>
+              <option>Cleaning</option>
+              <option>Repair</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Performed date</span>
+            <input
+              type="date"
+              name="performedDate"
+              value={maintenanceForm.performedDate}
+              onChange={updateMaintenanceField}
+              required
+            />
+          </label>
+
+          <label>
+            <span>Condition after maintenance</span>
+            <select
+              name="conditionAfter"
+              value={maintenanceForm.conditionAfter}
+              onChange={updateMaintenanceField}
+            >
+              <option value="">Not recorded</option>
+              <option>Excellent</option>
+              <option>Good</option>
+              <option>Fair</option>
+              <option>Poor</option>
+              <option>Damaged</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Next maintenance date</span>
+            <input
+              type="date"
+              name="nextMaintenanceDate"
+              value={
+                maintenanceForm.nextMaintenanceDate
+              }
+              onChange={updateMaintenanceField}
+            />
+          </label>
+
+          <label>
+            <span>Cost</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              name="cost"
+              value={maintenanceForm.cost}
+              onChange={updateMaintenanceField}
+            />
+          </label>
+
+          <label className="maintenance-description">
+            <span>Description</span>
+            <textarea
+              name="description"
+              value={maintenanceForm.description}
+              onChange={updateMaintenanceField}
+              required
+              rows="4"
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={savingMaintenance}
+          >
+            {savingMaintenance
+              ? "Saving..."
+              : "Record maintenance"}
+          </button>
+        </form>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <h2>Maintenance history</h2>
+
+          <button
+            type="button"
+            className="secondary"
+            onClick={loadMaintenance}
+            disabled={loading}
+          >
+            Refresh
+          </button>
+        </div>
+
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Description</th>
+                <th>Condition after</th>
+                <th>Next maintenance</th>
+                <th>Cost</th>
+                <th>Performed by</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {history.length ? (
+                history.map((item) => (
+                  <tr key={item.maintenanceId}>
+                    <td>{item.performedDate || "—"}</td>
+                    <td>
+                      {item.maintenanceType || "—"}
+                    </td>
+                    <td>{item.description || "—"}</td>
+                    <td>
+                      {item.conditionAfter || "—"}
+                    </td>
+                    <td>
+                      {item.nextMaintenanceDate || "—"}
+                    </td>
+                    <td>
+                      {item.cost !== undefined
+                        ? `$${item.cost}`
+                        : "—"}
+                    </td>
+                    <td>
+                      {item.performedByEmail ||
+                        item.performedBy ||
+                        "—"}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="7">
+                    {loading
+                      ? "Loading maintenance history..."
+                      : "No maintenance history has been recorded."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function AssetApplication({ signOut, user }) {
   const [assets, setAssets] = useState([]);
+    const [maintenanceAsset, setMaintenanceAsset] =
+    useState(null);
   const [form, setForm] = useState(emptyAsset);
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
@@ -46,14 +535,13 @@ function AssetApplication({ signOut, user }) {
   const [photo, setPhoto] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [photoMessage, setPhotoMessage] = useState("");
+    const [galleryItems, setGalleryItems] = useState([]);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryMessage, setGalleryMessage] = useState("");
   const photoInput = useRef(null);
   const [analysis, setAnalysis] = useState(null);
   const [analysisMessage, setAnalysisMessage] = useState("");
   const [checkingAnalysis, setCheckingAnalysis] = useState(false);
-  const [galleryItems, setGalleryItems] = useState([]);
-  const [galleryLoading, setGalleryLoading] = useState(false);
-  const [galleryMessage, setGalleryMessage] = useState("");
-  const [photoPreview, setPhotoPreview] = useState("");
   const analysisTimer = useRef(null);
 
   const loadAssets = useCallback(async () => {
@@ -66,12 +554,13 @@ function AssetApplication({ signOut, user }) {
     }
   }, [query]);
 
-  useEffect(() => {
+    useEffect(() => {
     loadAssets();
   }, [loadAssets]);
 
-  const loadGallery = useCallback(async () => {
+    const loadGallery = useCallback(async () => {
     const photoAssets = assets.filter((asset) => asset.imageKey);
+
     if (!photoAssets.length) {
       setGalleryItems([]);
       setGalleryMessage("");
@@ -80,25 +569,37 @@ function AssetApplication({ signOut, user }) {
 
     setGalleryLoading(true);
     setGalleryMessage("");
+
     const results = await Promise.allSettled(
       photoAssets.map(async (asset) => {
         const photoDetails = await api(
           `/assets/${encodeURIComponent(asset.assetId)}/photo`
         );
-        return { ...asset, ...photoDetails };
+
+        return {
+          ...asset,
+          ...photoDetails,
+        };
       })
     );
+
     const visibleItems = results
       .filter((result) => result.status === "fulfilled")
       .map((result) => result.value);
-    const failedCount = results.length - visibleItems.length;
+
+    const failedCount =
+      results.length - visibleItems.length;
 
     setGalleryItems(visibleItems);
+
     if (failedCount) {
       setGalleryMessage(
-        `${failedCount} photograph${failedCount === 1 ? "" : "s"} could not be loaded. Refresh the gallery to try again.`
+        `${failedCount} photograph${
+          failedCount === 1 ? "" : "s"
+        } could not be loaded. Refresh the gallery to try again.`
       );
     }
+
     setGalleryLoading(false);
   }, [assets]);
 
@@ -107,27 +608,13 @@ function AssetApplication({ signOut, user }) {
   }, [loadGallery]);
 
   useEffect(() => {
-    if (!photo) {
-      setPhotoPreview("");
-      return undefined;
-    }
-
-    const previewUrl = URL.createObjectURL(photo);
-    setPhotoPreview(previewUrl);
-
     return () => {
-      URL.revokeObjectURL(previewUrl);
+      if (analysisTimer.current) {
+        clearTimeout(analysisTimer.current);
+      }
     };
-  }, [photo]);
+  }, []);
 
- useEffect(() => {
-  return () => {
-
-    if (analysisTimer.current) {
-      clearTimeout(analysisTimer.current);
-    }
-  };
-}, []);
   function updateField(event) {
     const { name, value } = event.target;
     setForm((current) => ({ ...current, [name]: name === "usefulLifeMonths" ? Number(value) : value }));
@@ -317,6 +804,16 @@ if (analysisTimer.current) {
       setSaving(false);
     }
   }
+if (maintenanceAsset) {
+    return (
+      <MaintenancePage
+        asset={maintenanceAsset}
+        user={user}
+        signOut={signOut}
+        onBack={() => setMaintenanceAsset(null)}
+      />
+    );
+  }
 
   return (
     <main>
@@ -415,53 +912,87 @@ if (analysisTimer.current) {
           </button>
         </form>
       </section>
-
-      <section className="panel gallery-panel">
+            <section className="panel gallery-panel">
         <div className="section-heading">
           <div>
             <h2>Asset photo gallery</h2>
             <p className="gallery-intro">
-              Only photographs for assets authorized by your Cognito role are shown.
+              Only photographs for assets authorized by your Cognito
+              role are shown.
             </p>
           </div>
+
           <button
             type="button"
             className="secondary gallery-refresh"
             disabled={galleryLoading}
             onClick={loadGallery}
           >
-            {galleryLoading ? "Loading..." : "Refresh gallery"}
+            {galleryLoading
+              ? "Loading..."
+              : "Refresh gallery"}
           </button>
         </div>
 
-        {galleryMessage && <div className="notice" role="status">{galleryMessage}</div>}
-        {!galleryLoading && !galleryItems.length && (
-          <p className="gallery-empty">No authorized assets with photographs were found.</p>
+        {galleryMessage && (
+          <div className="notice" role="status">
+            {galleryMessage}
+          </div>
         )}
 
-        <div className="asset-gallery" aria-busy={galleryLoading}>
+        {!galleryLoading && !galleryItems.length && (
+          <p className="gallery-empty">
+            No authorized assets with photographs were found.
+          </p>
+        )}
+
+        <div
+          className="asset-gallery"
+          aria-busy={galleryLoading}
+        >
           {galleryItems.map((asset) => {
             const suggestion = asset.suggestion;
+
             return (
-              <article className="asset-photo-card" key={asset.assetId}>
+              <article
+                className="asset-photo-card"
+                key={asset.assetId}
+              >
                 <img
                   className="asset-gallery-image"
                   src={asset.photoUrl}
-                  alt={`${asset.assetTag} ${asset.category || "asset"}`}
+                  alt={`${asset.assetTag} ${
+                    asset.category || "asset"
+                  }`}
                   loading="lazy"
                 />
+
                 <div className="asset-photo-content">
                   <div className="asset-photo-title">
                     <div>
-                      <p className="asset-photo-tag">{asset.assetTag}</p>
-                      <h3>{asset.category || "Uncategorized asset"}</h3>
+                      <p className="asset-photo-tag">
+                        {asset.assetTag}
+                      </p>
+                      <h3>
+                        {asset.category ||
+                          "Uncategorized asset"}
+                      </h3>
                     </div>
-                    <span className="status">{asset.status}</span>
+
+                    <span className="status">
+                      {asset.status}
+                    </span>
                   </div>
-                  <p>{asset.description || "No description provided."}</p>
+
+                  <p>
+                    {asset.description ||
+                      "No description provided."}
+                  </p>
+
                   <dl className="asset-photo-meta">
                     <dt>Department</dt>
                     <dd>{asset.department || "—"}</dd>
+
                     <dt>Condition</dt>
                     <dd>{asset.condition || "—"}</dd>
                   </dl>
@@ -469,23 +1000,41 @@ if (analysisTimer.current) {
                   <div className="gallery-analysis">
                     <div className="gallery-analysis-heading">
                       <h4>Bedrock insight</h4>
-                      <span className={`analysis-badge analysis-${(asset.analysisStatus || "processing").toLowerCase()}`}>
-                        {asset.analysisStatus || "Processing"}
+                      <span className="analysis-badge">
+                        {asset.analysisStatus ||
+                          "Processing"}
                       </span>
                     </div>
+
                     {suggestion ? (
                       <dl>
                         <dt>Detected category</dt>
-                        <dd>{suggestion.category || "—"}</dd>
+                        <dd>
+                          {suggestion.category || "—"}
+                        </dd>
+
                         <dt>Description</dt>
-                        <dd>{suggestion.description || "—"}</dd>
+                        <dd>
+                          {suggestion.description || "—"}
+                        </dd>
+
                         <dt>Maintenance</dt>
-                        <dd>{suggestion.maintenanceCategory || "—"}</dd>
+                        <dd>
+                          {suggestion.maintenanceCategory ||
+                            "—"}
+                        </dd>
+
                         <dt>Review</dt>
-                        <dd>{suggestion.reviewStatus || "Needs review"}</dd>
+                        <dd>
+                          {suggestion.reviewStatus ||
+                            "Needs review"}
+                        </dd>
                       </dl>
                     ) : (
-                      <p>The AI analysis is still processing or has no suggestion.</p>
+                      <p>
+                        The AI analysis is still processing or
+                        has no suggestion.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -498,6 +1047,7 @@ if (analysisTimer.current) {
       <section className="panel">
         <div className="section-heading">
           <h2>Authorized inventory</h2>
+
           <div className="search">
             <input aria-label="Search assets" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tag or description" />
             <button className="secondary" onClick={loadAssets}>Search</button>
@@ -505,45 +1055,42 @@ if (analysisTimer.current) {
         </div>
         <div className="table-wrap">
           <table>
-           <thead>
-  <tr>
-    <th>Tag</th>
-    <th>Category</th>
-    <th>Description</th>
-    <th>Department</th>
-    <th>Status</th>
-    <th>Book value</th>
-    <th>Life used</th>
-    <th>Replacement date</th>
-  </tr>
-</thead>
-            <tbody>
-              {assets.map((asset) => (
-                <tr key={asset.assetId}>
-  <td>{asset.assetTag}</td>
-  <td>{asset.category}</td>
-  <td>{asset.description}</td>
-  <td>{asset.department || "—"}</td>
-  <td>
-    <span className="status">{asset.status}</span>
-  </td>
-  <td>
-    {asset.depreciation
-      ? `$${asset.depreciation.currentBookValue}`
-      : "—"}
-  </td>
-  <td>
-    {asset.depreciation
-      ? `${asset.depreciation.usefulLifeConsumedPercent}%`
-      : "—"}
-  </td>
-  <td>
-    {asset.depreciation?.estimatedReplacementDate || "—"}
-  </td>
-</tr>
-              ))}
-            </tbody>
-          </table>
+  <thead>
+    <tr>
+      <th>Tag</th>
+      <th>Category</th>
+      <th>Description</th>
+      <th>Department</th>
+      <th>Status</th>
+      <th>Maintenance</th>
+    </tr>
+  </thead>
+
+  <tbody>
+    {assets.map((asset) => (
+      <tr key={asset.assetId}>
+        <td>{asset.assetTag}</td>
+        <td>{asset.category}</td>
+        <td>{asset.description}</td>
+        <td>{asset.department || "—"}</td>
+        <td>
+          <span className="status">
+            {asset.status}
+          </span>
+        </td>
+        <td>
+          <button
+            type="button"
+            className="secondary table-action"
+            onClick={() => setMaintenanceAsset(asset)}
+          >
+            View maintenance
+          </button>
+        </td>
+      </tr>
+    ))}
+  </tbody>
+</table>
         </div>
       </section>
     </main>

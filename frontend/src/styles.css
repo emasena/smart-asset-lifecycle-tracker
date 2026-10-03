@@ -52,4 +52,252 @@ th, td { padding: 13px 12px; text-align: left; border-bottom: 1px solid #e4e9ef;
 th { color: #626d7f; font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; }
 .status { display: inline-block; border-radius: 999px; background: #edf4ff; color: #255ea8; padding: 4px 9px; font-size: .8rem; }
 @media (max-width: 760px) { .panel form { grid-template-columns: 1fr; } header, .section-heading { align-items: stretch; flex-direction: column; } }
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 
+.asset-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 20px 0 0;
+}
+
+.asset-summary div {
+  background: #f7f9fb;
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.asset-summary dt,
+.recommendation-details dt {
+  color: #626d7f;
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.asset-summary dd {
+  margin: 6px 0 0;
+  font-weight: 700;
+}
+
+.maintenance-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.maintenance-grid .panel {
+  margin: 0;
+}
+
+.maintenance-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: .8rem;
+  font-weight: 800;
+}
+
+.maintenance-current {
+  background: #e2f3ef;
+  color: #14544d;
+}
+
+.maintenance-duesoon {
+  background: #fff4d6;
+  color: #805c00;
+}
+
+.maintenance-overdue {
+  background: #ffe3e3;
+  color: #9c2828;
+}
+
+.recommendation-details {
+  display: grid;
+  grid-template-columns: minmax(150px, .7fr) 1.3fr;
+  gap: 12px 18px;
+  margin: 20px 0 0;
+}
+
+.recommendation-details dd {
+  margin: 0;
+}
+
+.ai-maintenance-result ol {
+  padding-left: 22px;
+}
+
+.ai-maintenance-result li {
+  margin: 8px 0;
+}
+
+.maintenance-form {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.maintenance-description {
+  grid-column: 1 / -1;
+}
+
+select,
+textarea {
+  width: 100%;
+  border: 1px solid #cbd4df;
+  border-radius: 9px;
+  padding: 11px 12px;
+  background: #fbfcfd;
+  font: inherit;
+}
+
+select:focus,
+textarea:focus {
+  outline: 3px solid rgba(40, 117, 108, .18);
+  border-color: #28756c;
+}
+
+.table-action {
+  white-space: nowrap;
+  padding: 8px 12px;
+}
+
+@media (max-width: 760px) {
+  .maintenance-grid,
+  .asset-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .recommendation-details {
+    grid-template-columns: 1fr;
+  }
+
+  .header-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+.gallery-intro {
+  margin: 6px 0 0;
+  color: #626d7f;
+}
+
+.gallery-refresh {
+  flex: 0 0 auto;
+}
+
+.gallery-empty {
+  margin: 22px 0 0;
+  color: #626d7f;
+}
+
+.asset-gallery {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(280px, 1fr)
+  );
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.asset-photo-card {
+  min-width: 0;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #dbe2ea;
+  border-radius: 14px;
+}
+
+.asset-gallery-image {
+  display: block;
+  width: 100%;
+  height: 220px;
+  object-fit: contain;
+  background: #f2f5f8;
+}
+
+.asset-photo-content {
+  padding: 16px;
+}
+
+.asset-photo-title {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.asset-photo-title h3 {
+  margin: 3px 0 8px;
+}
+
+.asset-photo-tag {
+  margin: 0;
+  color: #28756c;
+  font-size: .78rem;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.asset-photo-meta,
+.gallery-analysis dl {
+  display: grid;
+  grid-template-columns: minmax(100px, .7fr) 1.3fr;
+  gap: 8px 12px;
+}
+
+.asset-photo-meta dt,
+.gallery-analysis dt {
+  color: #626d7f;
+  font-size: .76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.asset-photo-meta dd,
+.gallery-analysis dd {
+  margin: 0;
+}
+
+.gallery-analysis {
+  margin-top: 16px;
+  padding: 14px;
+  background: #f7f9fb;
+  border-radius: 10px;
+}
+
+.gallery-analysis-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gallery-analysis-heading h4 {
+  margin: 0;
+}
+
+.analysis-badge {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #edf4ff;
+  color: #255ea8;
+  font-size: .75rem;
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .asset-gallery {
+    grid-template-columns: 1fr;
+  }
+
+  .asset-gallery-image {
+    height: 200px;
+  }
+}
