@@ -67,7 +67,12 @@ def authenticated_event(
 
 class SecurityRequirementTests(unittest.TestCase):
     def setUp(self):
-        self.api, self.table, self.transactions = _load_api()
+                (
+            self.api,
+            self.table,
+            self.transactions,
+            self.s3,
+        ) = _load_api()
 
     def response_body(self, result):
         return json.loads(result["body"])

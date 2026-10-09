@@ -35,3 +35,4 @@ coverage/
 # Operating-system files
 .DS_Store
 Thumbs.db
+smoke-test-results.md

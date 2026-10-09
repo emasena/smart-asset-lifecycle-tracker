@@ -23,15 +23,10 @@ except ModuleNotFoundError:
     boto3_module.client = MagicMock()
     sys.modules["boto3"] = boto3_module
 
-    sys.modules["boto3.dynamodb"] = types.ModuleType(
-        "boto3.dynamodb"
-    )
-    conditions_module = types.ModuleType(
-    "boto3.dynamodb.conditions"
-)
+    conditions_module = types.ModuleType("boto3.dynamodb.conditions")
     conditions_module.Attr = MagicMock
     conditions_module.Key = MagicMock
-
+    sys.modules["boto3.dynamodb"] = types.ModuleType("boto3.dynamodb")
     sys.modules["boto3.dynamodb.conditions"] = conditions_module
 
     types_module = types.ModuleType("boto3.dynamodb.types")
@@ -88,6 +83,48 @@ class AssetPhotoGalleryTests(unittest.TestCase):
             Params={"Bucket": "private-photos", "Key": self.asset["imageKey"]},
             ExpiresIn=300,
         )
+
+    def test_claimed_photo_uses_analysis_from_original_upload(self):
+        claimed = {**self.asset, "imageKey": "claimed/technician-1/photo.jpg"}
+        self.table.get_item.side_effect = [{"Item": claimed}, {"Item": self.analysis}]
+
+        result = self.call_photo({"sub": "admin-1"}, {"Administrator"})
+
+        self.assertEqual(result["statusCode"], 200)
+        self.s3.generate_presigned_url.assert_called_once_with(
+            "get_object",
+            Params={"Bucket": "private-photos", "Key": "claimed/technician-1/photo.jpg"},
+            ExpiresIn=300,
+        )
+        self.assertEqual(
+            self.table.get_item.call_args_list[1].kwargs["Key"],
+            {"PK": "PHOTO#pending/technician-1/photo.jpg", "SK": "ANALYSIS"},
+        )
+
+    def test_missing_asset_returns_not_found(self):
+        self.table.get_item.return_value = {}
+
+        result = self.call_photo({"sub": "admin-1"}, {"Administrator"})
+
+        self.assertEqual(result["statusCode"], 404)
+        self.s3.generate_presigned_url.assert_not_called()
+
+    def test_auditor_can_view_any_asset_photo(self):
+        self.table.get_item.side_effect = [{"Item": self.asset}, {"Item": self.analysis}]
+
+        result = self.call_photo({"sub": "auditor-1"}, {"Auditor"})
+
+        self.assertEqual(result["statusCode"], 200)
+
+    def test_manager_can_view_same_department_photo(self):
+        self.table.get_item.side_effect = [{"Item": self.asset}, {"Item": self.analysis}]
+
+        result = self.call_photo(
+            {"sub": "manager-1", "custom:department": "IT"},
+            {"Manager"},
+        )
+
+        self.assertEqual(result["statusCode"], 200)
 
     def test_manager_cannot_view_other_department_photo(self):
         self.table.get_item.return_value = {"Item": self.asset}

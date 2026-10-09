@@ -62,7 +62,6 @@ class MaintenanceSchedulerTests(unittest.TestCase):
                 CURRENT_LAPTOP,
             ]
         }
-        table.query.return_value = {"Items": []}
 
         report = self.scheduler.evaluate_assets(
             table,
@@ -83,10 +82,8 @@ class MaintenanceSchedulerTests(unittest.TestCase):
     def test_due_soon_asset_uses_maintenance_history(self):
         table = MagicMock()
         table.scan.return_value = {
-            "Items": [CURRENT_LAPTOP]
-        }
-        table.query.return_value = {
             "Items": [
+                CURRENT_LAPTOP,
                 {
                     "PK": "ASSET#AST-LAPTOP",
                     "SK": (
@@ -96,7 +93,7 @@ class MaintenanceSchedulerTests(unittest.TestCase):
                     "performedDate": "2026-09-15",
                     "conditionAfter": "Good",
                     "nextMaintenanceDate": "2026-10-15",
-                }
+                },
             ]
         }
 
@@ -129,7 +126,6 @@ class MaintenanceSchedulerTests(unittest.TestCase):
                 "Items": [CURRENT_LAPTOP],
             },
         ]
-        table.query.return_value = {"Items": []}
 
         report = self.scheduler.evaluate_assets(
             table,
@@ -157,7 +153,6 @@ class MaintenanceSchedulerTests(unittest.TestCase):
                 }
             ]
         }
-        table.query.return_value = {"Items": []}
 
         report = self.scheduler.evaluate_assets(
             table,
@@ -167,6 +162,44 @@ class MaintenanceSchedulerTests(unittest.TestCase):
         self.assertEqual(report["evaluatedCount"], 1)
         self.assertEqual(report["skippedCount"], 1)
         self.assertEqual(report["alertCount"], 0)
+
+    def test_history_is_read_from_the_scan_without_per_asset_queries(self):
+        table = MagicMock()
+        table.scan.return_value = {
+            "Items": [
+                OVERDUE_PRINTER,
+                CURRENT_LAPTOP,
+                {
+                    "PK": "ASSET#AST-PRINTER",
+                    "SK": "MAINTENANCE#2026-09-20#MNT-00000001",
+                    "performedDate": "2026-09-20",
+                    "conditionAfter": "Good",
+                },
+            ]
+        }
+
+        report = self.scheduler.evaluate_assets(table, "2026-10-01")
+
+        table.query.assert_not_called()
+        self.assertEqual(table.scan.call_count, 1)
+        self.assertEqual(report["evaluatedCount"], 2)
+        self.assertEqual(report["alertCount"], 0)
+
+    def test_unexpected_asset_error_skips_only_that_asset(self):
+        table = MagicMock()
+        bad_asset = {
+            **CURRENT_LAPTOP,
+            "assetId": "AST-BAD",
+            "condition": {"unexpected": "shape"},
+        }
+        table.scan.return_value = {"Items": [bad_asset, OVERDUE_PRINTER]}
+
+        report = self.scheduler.evaluate_assets(table, "2026-10-01")
+
+        self.assertEqual(report["evaluatedCount"], 2)
+        self.assertEqual(report["skippedCount"], 1)
+        self.assertEqual(report["alertCount"], 1)
+        self.assertEqual(report["alerts"][0]["assetId"], "AST-PRINTER")
 
     def test_no_alerts_does_not_publish_sns_message(self):
         table = MagicMock()

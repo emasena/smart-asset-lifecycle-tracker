@@ -48,6 +48,9 @@ PHOTO_BUCKET = os.environ.get("ASSET_PHOTO_BUCKET")
 PHOTO_URL_EXPIRES_IN = 300
 SERIALIZER = TypeSerializer()
 
+PENDING_PREFIX = "pending/"
+CLAIMED_PREFIX = "claimed/"
+
 
 def response(status_code, body):
     return {
@@ -117,15 +120,11 @@ def _existing_tag(tag, excluding_asset_id=None):
 
 
 def _condition_failed(exc):
-    if (
-        exc.response.get("Error", {}).get("Code") != "TransactionCanceledException"
-):
+    if exc.response.get("Error", {}).get("Code") != "TransactionCanceledException":
         return False
     return any(reason.get("Code") == "ConditionalCheckFailed"
-               for reason in exc.response.get("CancellationReasons",
-[],
-)
-)
+               for reason in exc.response.get("CancellationReasons", []))
+
 def _clean_asset(item):
     if not item:
         return None
@@ -135,6 +134,69 @@ def _clean_asset(item):
         for key, value in item.items()
         if key not in {"PK", "SK"}
     }
+
+
+def _normalise_index_fields(item):
+    for field in ("assignedUserId", "department"):
+        value = item.get(field)
+
+        if value is None or (
+            isinstance(value, str)
+            and not value.strip()
+        ):
+            item.pop(field, None)
+
+        elif not isinstance(value, str):
+            raise ValidationError(
+                f"{field} must be a string.",
+                [field],
+            )
+
+        else:
+            item[field] = value.strip()
+
+    return item
+
+
+def _claim_photo(image_key):
+    """Copy a pending photo to the prefix the S3 lifecycle rule leaves alone.
+
+    Once an asset's imageKey points at it, the photo must outlive the 7-day
+    pending/ expiration, so it's copied to claimed/ before being persisted.
+    The pending object is kept until the asset write succeeds, so a rejected
+    or failed save can be retried with the same imageKey. The copy is
+    idempotent, so retrying simply overwrites the same claimed/ key.
+    """
+    if not image_key or not image_key.startswith(PENDING_PREFIX):
+        return image_key
+
+    claimed_key = CLAIMED_PREFIX + image_key[len(PENDING_PREFIX):]
+    try:
+        S3.copy_object(
+            Bucket=PHOTO_BUCKET,
+            CopySource={"Bucket": PHOTO_BUCKET, "Key": image_key},
+            Key=claimed_key,
+        )
+    except ClientError as exc:
+        raise ValidationError(
+            "The uploaded photograph could not be found. Upload it again.",
+            ["imageKey"],
+        ) from exc
+    return claimed_key
+
+
+def _release_pending_photo(pending_key):
+    """Best-effort removal of a pending photo once its asset has been saved.
+
+    A failure here must not fail a save that already succeeded; the pending/
+    lifecycle rule expires anything left behind.
+    """
+    if not pending_key or not pending_key.startswith(PENDING_PREFIX):
+        return
+    try:
+        S3.delete_object(Bucket=PHOTO_BUCKET, Key=pending_key)
+    except ClientError:
+        LOGGER.warning("Could not delete claimed pending photo key=%s", pending_key, exc_info=True)
 
 
 def _asset_view(item):
@@ -159,27 +221,6 @@ def _asset_view(item):
 
     return asset
 
-
-def _normalise_index_fields(item):
-    for field in ("assignedUserId", "department"):
-        value = item.get(field)
-
-        if value is None or (
-            isinstance(value, str)
-            and not value.strip()
-        ):
-            item.pop(field, None)
-
-        elif not isinstance(value, str):
-            raise ValidationError(
-                f"{field} must be a string.",
-                [field],
-            )
-
-        else:
-            item[field] = value.strip()
-
-    return item
 
 def _create(event, claims, groups):
     if not can_create(groups):
@@ -212,6 +253,10 @@ def _create(event, claims, groups):
             )
 
         payload["department"] = department
+
+    pending_key = payload.get("imageKey")
+    if pending_key:
+        payload["imageKey"] = _claim_photo(pending_key)
 
     if _existing_tag(payload["assetTag"]):
         return response(
@@ -267,6 +312,7 @@ def _create(event, claims, groups):
             return response(409, {"error": "Conflict", "message": "An asset with this asset tag already exists."})
         raise
 
+    _release_pending_photo(pending_key)
     LOGGER.info("Asset created assetId=%s actorSub=%s", asset_id, claims.get("sub"))
     return response(201, {"assetId": asset_id, "message": "Asset created successfully."})
 
@@ -279,21 +325,46 @@ def _get(asset_id, claims, groups):
         return response(403, {"error": "Forbidden", "message": "You do not have permission to view this asset."})
     return response(200, _asset_view(item))
 
+def _encode_next_token(last_evaluated_key):
+    if not last_evaluated_key:
+        return None
+
+    raw = json.dumps(last_evaluated_key, default=_json_default).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("utf-8")
+
+
+def _decode_next_token(token):
+    if not token:
+        return None
+
+    try:
+        raw = base64.urlsafe_b64decode(token.encode("utf-8")).decode("utf-8")
+        return json.loads(raw)
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        raise ValidationError("Invalid nextToken.")
+
+
 def _photo_analysis_key(photo_key):
+    # Analyses are recorded against the original upload key, so a claimed
+    # photo is looked up under the pending/ key it was uploaded as.
+    if photo_key.startswith(CLAIMED_PREFIX):
+        photo_key = PENDING_PREFIX + photo_key[len(CLAIMED_PREFIX):]
+
     return {
         "PK": f"PHOTO#{photo_key}",
         "SK": "ANALYSIS",
     }
 
 
-def _get_photo(asset_id, claims, groups):
-    item = TABLE.get_item(
+def _load_readable_asset(asset_id, claims, groups, denied_message):
+    """Return (asset, None) or (None, error response)."""
+    asset = TABLE.get_item(
         Key=_asset_key(asset_id),
         ConsistentRead=True,
     ).get("Item")
 
-    if not item:
-        return response(
+    if not asset:
+        return None, response(
             404,
             {
                 "error": "NotFound",
@@ -301,17 +372,31 @@ def _get_photo(asset_id, claims, groups):
             },
         )
 
-    if not can_read(groups, claims, item):
-        return response(
+    if not can_read(groups, claims, asset):
+        return None, response(
             403,
             {
                 "error": "Forbidden",
-                "message": (
-                    "You do not have permission to view "
-                    "this asset photograph."
-                ),
+                "message": denied_message,
             },
         )
+
+    return asset, None
+
+
+def _get_photo(asset_id, claims, groups):
+    item, error = _load_readable_asset(
+        asset_id,
+        claims,
+        groups,
+        (
+            "You do not have permission to view "
+            "this asset photograph."
+        ),
+    )
+
+    if error:
+        return error
 
     photo_key = item.get("imageKey")
 
@@ -326,7 +411,7 @@ def _get_photo(asset_id, claims, groups):
 
     if (
         not PHOTO_BUCKET
-        or not photo_key.startswith(("pending/", "assets/"))
+        or not photo_key.startswith((PENDING_PREFIX, CLAIMED_PREFIX, "assets/"))
     ):
         LOGGER.error(
             "Invalid photo configuration assetId=%s photoKey=%s",
@@ -379,23 +464,6 @@ def _get_photo(asset_id, claims, groups):
             ),
         },
     )
-def _encode_next_token(last_evaluated_key):
-    if not last_evaluated_key:
-        return None
-
-    raw = json.dumps(last_evaluated_key, default=_json_default).encode("utf-8")
-    return base64.urlsafe_b64encode(raw).decode("utf-8")
-
-
-def _decode_next_token(token):
-    if not token:
-        return None
-
-    try:
-        raw = base64.urlsafe_b64decode(token.encode("utf-8")).decode("utf-8")
-        return json.loads(raw)
-    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
-        raise ValidationError("Invalid nextToken.")
 
 def _list(event, claims, groups):
     params = event.get("queryStringParameters") or {}
@@ -415,15 +483,14 @@ def _list(event, claims, groups):
             | Attr("description").contains(query)
             | Attr("manufacturer").contains(query)
         )
+
     request = {
         "FilterExpression": filters,
         "Limit": 100,
     }
 
     if params.get("nextToken"):
-        request["ExclusiveStartKey"] = _decode_next_token(
-            params["nextToken"]
-        )
+        request["ExclusiveStartKey"] = _decode_next_token(params["nextToken"])
 
     if groups.intersection({"Administrator", "Auditor"}):
         result = TABLE.scan(**request)
@@ -432,57 +499,39 @@ def _list(event, claims, groups):
         department = claims.get("custom:department")
 
         if not department:
-            return response(
-                403,
-                {
-                    "error": "Forbidden",
-                    "message": (
-                        "Your account does not have a "
-                        "department assigned."
-                    ),
-                },
-            )
+            return response(403, {
+                "error": "Forbidden",
+                "message": "Your account does not have a department assigned.",
+            })
 
         request["IndexName"] = "DepartmentIndex"
-        request["KeyConditionExpression"] = Key(
-            "department"
-        ).eq(department)
+        request["KeyConditionExpression"] = Key("department").eq(department)
         result = TABLE.query(**request)
 
     elif "Employee" in groups:
         request["IndexName"] = "AssignedUserIndex"
-        request["KeyConditionExpression"] = Key(
-            "assignedUserId"
-        ).eq(claims["sub"])
+        request["KeyConditionExpression"] = Key("assignedUserId").eq(claims["sub"])
         result = TABLE.query(**request)
 
     else:
-        return response(
-            403,
-            {
-                "error": "Forbidden",
-                "message": (
-                    "You do not have permission to list assets."
-                ),
-            },
-        )
+        return response(403, {
+            "error": "Forbidden",
+            "message": "You do not have permission to list assets.",
+        })
 
-    items = [
-        _asset_view(item)
-        for item in result.get("Items", [])
-    ]
+    items = [_asset_view(item) for item in result.get("Items", [])]
 
     body = {
-        "items": items,
-        "count": len(items),
+            "items": items,
+            "count": len(items),
     }
 
     if result.get("LastEvaluatedKey"):
-        body["nextToken"] = _encode_next_token(
-            result["LastEvaluatedKey"]
-        )
+        body["nextToken"] = _encode_next_token(result["LastEvaluatedKey"])
 
     return response(200, body)
+
+
 def _update(event, asset_id, claims, groups):
     existing = TABLE.get_item(Key=_asset_key(asset_id), ConsistentRead=True).get("Item")
     if not existing:
@@ -505,8 +554,12 @@ def _update(event, asset_id, claims, groups):
     if not validate_update_permissions(groups, changed_fields):
         return response(403, {"error": "Forbidden", "message": "You do not have permission to update these asset fields."})
 
+    current = _clean_asset(existing)
+    # DynamoDB returns numbers as Decimal; validation expects an int.
+    if isinstance(current.get("usefulLifeMonths"), Decimal):
+        current["usefulLifeMonths"] = int(current["usefulLifeMonths"])
     candidate = {
-        **_clean_asset(existing),
+        **current,
         **{
             key: value
             for key, value in payload.items()
@@ -522,6 +575,11 @@ def _update(event, asset_id, claims, groups):
     candidate["salvageValue"] = Decimal(str(candidate["salvageValue"]))
     candidate["updatedAt"] = datetime.now(timezone.utc).isoformat()
     candidate["updatedBy"] = claims.get("sub")
+
+    pending_key = None
+    if "imageKey" in changed_fields and candidate.get("imageKey"):
+        pending_key = candidate["imageKey"]
+        candidate["imageKey"] = _claim_photo(pending_key)
 
     old_tag = _asset_tag(existing["assetTag"])
     new_tag = candidate["assetTag"]
@@ -566,33 +624,105 @@ def _update(event, asset_id, claims, groups):
             )
         except TABLE.meta.client.exceptions.ConditionalCheckFailedException:
             return response(409, {"error": "Conflict", "message": "The asset changed during your update. Refresh and try again."})
+    _release_pending_photo(pending_key)
     LOGGER.info("Asset updated assetId=%s actorSub=%s fields=%s", asset_id, claims.get("sub"), sorted(changed_fields))
     return response(200, {"assetId": asset_id, "message": "Asset updated successfully."})
 
-def _create_maintenance(event, asset_id, claims, groups):
-    asset = TABLE.get_item(
-        Key=_asset_key(asset_id),
-        ConsistentRead=True,
-    ).get("Item")
+def _maintenance_key(asset_id, performed_date, maintenance_id):
+    return {
+        "PK": f"ASSET#{asset_id}",
+        "SK": f"MAINTENANCE#{performed_date}#{maintenance_id}",
+    }
 
-    if not asset:
-        return response(
-            404,
-            {
-                "error": "NotFound",
-                "message": "Asset was not found.",
-            },
-        )
 
-    if not can_read(groups, claims, asset):
-        return response(
+def _find_maintenance(asset_id, maintenance_id):
+    """The sort key embeds the date, so the record is located by its ID."""
+    params = {
+        "KeyConditionExpression": (
+            "PK = :pk AND begins_with(SK, :maintenance)"
+        ),
+        "FilterExpression": "maintenanceId = :maintenance_id",
+        "ExpressionAttributeValues": {
+            ":pk": f"ASSET#{asset_id}",
+            ":maintenance": "MAINTENANCE#",
+            ":maintenance_id": maintenance_id,
+        },
+        "ConsistentRead": True,
+    }
+
+    while True:
+        page = TABLE.query(**params)
+
+        for item in page.get("Items", []):
+            if item.get("maintenanceId") == maintenance_id:
+                return item
+
+        if "LastEvaluatedKey" not in page:
+            return None
+
+        params["ExclusiveStartKey"] = page["LastEvaluatedKey"]
+
+
+def _authorized_maintenance(asset_id, maintenance_id, claims, groups):
+    """Return (record, None) or (None, error response)."""
+    asset, error = _load_readable_asset(
+        asset_id,
+        claims,
+        groups,
+        "You cannot change maintenance for this asset.",
+    )
+
+    if error:
+        return None, error
+
+    # can_read lets Auditors see every department, so a Technician who is
+    # also an Auditor would pass it. Changes stay scoped to the caller's
+    # own department unless they are an Administrator.
+    department = claims.get("custom:department")
+
+    if "Administrator" not in groups and (
+        not department or department != asset.get("department")
+    ):
+        return None, response(
             403,
             {
                 "error": "Forbidden",
-                "message": "You cannot add maintenance to this asset.",
+                "message": (
+                    "You can only change maintenance for assets "
+                    "in your department."
+                ),
             },
         )
-    if not groups.intersection({"Administrator", "Technician"}):
+
+    record = _find_maintenance(asset_id, maintenance_id)
+
+    if not record:
+        return None, response(
+            404,
+            {
+                "error": "NotFound",
+                "message": "Maintenance record was not found.",
+            },
+        )
+
+    return record, None
+
+
+def _create_maintenance(event, asset_id, claims, groups):
+    asset, error = _load_readable_asset(
+        asset_id,
+        claims,
+        groups,
+        "You cannot add maintenance to this asset.",
+    )
+
+    if error:
+        return error
+
+    if (
+        "Administrator" not in groups
+        and "Technician" not in groups
+    ):
         return response(
             403,
             {
@@ -605,20 +735,21 @@ def _create_maintenance(event, asset_id, claims, groups):
         )
 
     maintenance = validate_maintenance(_body(event))
+    now = datetime.now(timezone.utc).isoformat()
     maintenance_id = f"MNT-{uuid.uuid4().hex[:8].upper()}"
 
     item = {
         **maintenance,
-        "PK": f"ASSET#{asset_id}",
-        "SK": (
-            f"MAINTENANCE#{maintenance['performedDate']}#"
-            f"{maintenance_id}"
+        **_maintenance_key(
+            asset_id,
+            maintenance["performedDate"],
+            maintenance_id,
         ),
         "maintenanceId": maintenance_id,
         "assetId": asset_id,
         "performedBy": claims.get("sub"),
         "performedByEmail": claims.get("email"),
-        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "createdAt": now,
     }
 
     item = {
@@ -651,47 +782,269 @@ def _create_maintenance(event, asset_id, claims, groups):
         },
     )
 
-def _list_maintenance(asset_id, claims, groups):
-    asset = TABLE.get_item(
-        Key=_asset_key(asset_id),
-        ConsistentRead=True,
-    ).get("Item")
+def _maintenance_unchanged_condition(existing):
+    """Condition that the stored record is still the version that was read."""
+    values = {":maintenance_id": existing["maintenanceId"]}
 
-    if not asset:
-        return response(
-            404,
-            {
-                "error": "NotFound",
-                "message": "Asset was not found.",
-            },
+    if existing.get("updatedAt"):
+        values[":updated_at"] = existing["updatedAt"]
+        return (
+            "maintenanceId = :maintenance_id AND updatedAt = :updated_at",
+            values,
         )
 
-    if not can_read(groups, claims, asset):
+    return (
+        "maintenanceId = :maintenance_id AND attribute_not_exists(updatedAt)",
+        values,
+    )
+
+
+def _maintenance_conflict():
+    return response(
+        409,
+        {
+            "error": "Conflict",
+            "message": (
+                "The maintenance record changed during your "
+                "update. Refresh and try again."
+            ),
+        },
+    )
+
+
+def _update_maintenance(
+    event,
+    asset_id,
+    maintenance_id,
+    claims,
+    groups,
+):
+    if (
+        "Administrator" not in groups
+        and "Technician" not in groups
+    ):
         return response(
             403,
             {
                 "error": "Forbidden",
                 "message": (
-                    "You do not have permission to view "
-                    "maintenance for this asset."
+                    "Only an Administrator or Technician can "
+                    "edit maintenance."
                 ),
             },
         )
-    result = TABLE.query(
-        KeyConditionExpression=(
+
+    existing, error = _authorized_maintenance(
+        asset_id,
+        maintenance_id,
+        claims,
+        groups,
+    )
+
+    if error:
+        return error
+
+    if (
+        "Administrator" not in groups
+        and existing.get("performedBy") != claims.get("sub")
+    ):
+        return response(
+            403,
+            {
+                "error": "Forbidden",
+                "message": (
+                    "A Technician can only edit maintenance "
+                    "they recorded."
+                ),
+            },
+        )
+
+    body = _body(event)
+    maintenance = validate_maintenance(body)
+
+    # The client sends the updatedAt it last saw so an edit made from a
+    # stale form cannot silently overwrite someone else's change.
+    if (
+        "expectedUpdatedAt" in body
+        and body["expectedUpdatedAt"] != existing.get("updatedAt")
+    ):
+        return _maintenance_conflict()
+
+    unchanged, unchanged_values = _maintenance_unchanged_condition(
+        existing,
+    )
+
+    # Identity and audit fields always come from the stored record or the
+    # authenticated caller, never from the request body.
+    item = {
+        **maintenance,
+        **_maintenance_key(
+            asset_id,
+            maintenance["performedDate"],
+            maintenance_id,
+        ),
+        "maintenanceId": maintenance_id,
+        "assetId": asset_id,
+        "performedBy": existing.get("performedBy"),
+        "performedByEmail": existing.get("performedByEmail"),
+        "createdAt": existing.get("createdAt"),
+        "updatedBy": claims.get("sub"),
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+    item = {
+        key: value
+        for key, value in item.items()
+        if value is not None
+    }
+
+    if item["SK"] == existing["SK"]:
+        try:
+            TABLE.put_item(
+                Item=item,
+                ConditionExpression=unchanged,
+                ExpressionAttributeValues=unchanged_values,
+            )
+        except TABLE.meta.client.exceptions.ConditionalCheckFailedException:
+            return _maintenance_conflict()
+    else:
+        # A new performed date moves the record to a new sort key, so the
+        # old item is removed in the same transaction.
+        try:
+            TRANSACTIONS.transact_write_items(TransactItems=[
+                {"Put": {
+                    "TableName": TABLE.name,
+                    "Item": _wire_item(item),
+                    "ConditionExpression": "attribute_not_exists(SK)",
+                }},
+                {"Delete": {
+                    "TableName": TABLE.name,
+                    "Key": _wire_item({
+                        "PK": existing["PK"],
+                        "SK": existing["SK"],
+                    }),
+                    "ConditionExpression": unchanged,
+                    "ExpressionAttributeValues": _wire_item(
+                        unchanged_values,
+                    ),
+                }},
+            ])
+        except ClientError as exc:
+            if _condition_failed(exc):
+                return _maintenance_conflict()
+            raise
+
+    LOGGER.info(
+        "Maintenance updated assetId=%s maintenanceId=%s actorSub=%s",
+        asset_id,
+        maintenance_id,
+        claims.get("sub"),
+    )
+
+    return response(
+        200,
+        {
+            "assetId": asset_id,
+            "maintenanceId": maintenance_id,
+            "message": "Maintenance record updated successfully.",
+        },
+    )
+
+
+def _delete_maintenance(asset_id, maintenance_id, claims, groups):
+    if "Administrator" not in groups:
+        return response(
+            403,
+            {
+                "error": "Forbidden",
+                "message": (
+                    "Only an Administrator can delete maintenance."
+                ),
+            },
+        )
+
+    existing, error = _authorized_maintenance(
+        asset_id,
+        maintenance_id,
+        claims,
+        groups,
+    )
+
+    if error:
+        return error
+
+    try:
+        TABLE.delete_item(
+            Key={"PK": existing["PK"], "SK": existing["SK"]},
+            ConditionExpression="maintenanceId = :maintenance_id",
+            ExpressionAttributeValues={
+                ":maintenance_id": maintenance_id,
+            },
+        )
+    except TABLE.meta.client.exceptions.ConditionalCheckFailedException:
+        return response(
+            404,
+            {
+                "error": "NotFound",
+                "message": "Maintenance record was not found.",
+            },
+        )
+
+    LOGGER.info(
+        "Maintenance deleted assetId=%s maintenanceId=%s actorSub=%s",
+        asset_id,
+        maintenance_id,
+        claims.get("sub"),
+    )
+
+    return response(
+        200,
+        {
+            "assetId": asset_id,
+            "maintenanceId": maintenance_id,
+            "message": "Maintenance record deleted successfully.",
+        },
+    )
+
+
+def _list_maintenance(asset_id, claims, groups):
+    asset, error = _load_readable_asset(
+        asset_id,
+        claims,
+        groups,
+        (
+            "You do not have permission to view "
+            "maintenance for this asset."
+        ),
+    )
+
+    if error:
+        return error
+    params = {
+        "KeyConditionExpression": (
             "PK = :pk AND begins_with(SK, :maintenance)"
         ),
-        ExpressionAttributeValues={
+        "ExpressionAttributeValues": {
             ":pk": f"ASSET#{asset_id}",
             ":maintenance": "MAINTENANCE#",
         },
-        ScanIndexForward=False,
-    )
+        "ScanIndexForward": False,
+    }
+    items = []
 
-    items = [
-        _clean_asset(item)
-        for item in result.get("Items", [])
-    ]
+    # A long history can exceed one 1 MB query page; read every page so
+    # older records stay visible and editable.
+    while True:
+        result = TABLE.query(**params)
+        items.extend(
+            _clean_asset(item)
+            for item in result.get("Items", [])
+        )
+
+        if "LastEvaluatedKey" not in result:
+            break
+
+        params["ExclusiveStartKey"] = result["LastEvaluatedKey"]
 
     try:
         recommendation = calculate_maintenance_recommendation(
@@ -719,31 +1072,18 @@ def _generate_maintenance_recommendation(
     claims,
     groups,
 ):
-    asset = TABLE.get_item(
-        Key=_asset_key(asset_id),
-        ConsistentRead=True,
-    ).get("Item")
+    asset, error = _load_readable_asset(
+        asset_id,
+        claims,
+        groups,
+        (
+            "You cannot generate recommendations "
+            "for this asset."
+        ),
+    )
 
-    if not asset:
-        return response(
-            404,
-            {
-                "error": "NotFound",
-                "message": "Asset was not found.",
-            },
-        )
-
-    if not can_read(groups, claims, asset):
-        return response(
-            403,
-            {
-                "error": "Forbidden",
-                "message": (
-                    "You cannot generate recommendations "
-                    "for this asset."
-                ),
-            },
-        )
+    if error:
+        return error
 
     if (
         "Administrator" not in groups
@@ -779,16 +1119,29 @@ def _generate_maintenance_recommendation(
 
     clean_asset = _clean_asset(asset)
 
-    schedule = calculate_maintenance_recommendation(
-        clean_asset,
-        maintenance_history=history,
-    )
+    try:
+        schedule = calculate_maintenance_recommendation(
+            clean_asset,
+            maintenance_history=history,
+        )
+    except MaintenanceRecommendationError as exc:
+        return response(
+            422,
+            {
+                "error": "ScheduleUnavailable",
+                "message": str(exc),
+            },
+        )
 
-    ai_recommendation = generate_maintenance_advice(
-        clean_asset,
-        history,
-        schedule,
-    )
+    try:
+        ai_recommendation = generate_maintenance_advice(
+            clean_asset,
+            history,
+            schedule,
+        )
+    except ClientError as exc:
+        LOGGER.warning("Bedrock maintenance request failed: %s", exc)
+        raise MaintenanceAiError("Bedrock request failed.") from exc
 
     LOGGER.info(
         "AI maintenance recommendation generated "
@@ -806,11 +1159,12 @@ def _generate_maintenance_recommendation(
             "generatedForReview": True,
         },
     )
+
 def lambda_handler(event, _context):
     method = event.get("httpMethod", "")
-    asset_id = (event.get("pathParameters") or {}).get(
-        "assetId"
-    )
+    path_parameters = event.get("pathParameters") or {}
+    asset_id = path_parameters.get("assetId")
+    maintenance_id = path_parameters.get("maintenanceId")
     route = event.get("resource") or event.get("path") or ""
     claims, groups = _identity(event)
 
@@ -833,6 +1187,23 @@ def lambda_handler(event, _context):
         ):
             return _generate_maintenance_recommendation(
                 asset_id,
+                claims,
+                groups,
+            )
+
+        if method == "PUT" and asset_id and maintenance_id:
+            return _update_maintenance(
+                event,
+                asset_id,
+                maintenance_id,
+                claims,
+                groups,
+            )
+
+        if method == "DELETE" and asset_id and maintenance_id:
+            return _delete_maintenance(
+                asset_id,
+                maintenance_id,
                 claims,
                 groups,
             )

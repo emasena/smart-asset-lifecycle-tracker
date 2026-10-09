@@ -15,6 +15,7 @@ TECHNICIAN_UPDATE_FIELDS = {
     "imageKey",
 }
 CREATE_RESTRICTED_FIELDS = {"assignedUserId", "department"}
+LOCATION_MAX_LENGTH = 200
 
 REQUIRED_FIELDS = {
     "assetTag",
@@ -66,6 +67,14 @@ def validate_asset(payload, partial=False):
         missing = sorted(field for field in REQUIRED_FIELDS if payload.get(field) in (None, ""))
         if missing:
             raise ValidationError("Required asset information is missing.", missing)
+
+    if payload.get("location") is not None:
+        location = payload["location"]
+        if not isinstance(location, str) or len(location.strip()) > LOCATION_MAX_LENGTH:
+            raise ValidationError(
+                f"Location must be text of at most {LOCATION_MAX_LENGTH} characters.",
+                ["location"],
+            )
 
     if "status" in payload and payload["status"] not in VALID_STATUSES:
         raise ValidationError("Invalid asset status.", ["status"])

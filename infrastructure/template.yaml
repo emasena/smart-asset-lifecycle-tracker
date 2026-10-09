@@ -1,17 +1,38 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: AWS Smart Asset Lifecycle Tracker - Week 1 foundation
+Description: AWS Smart Asset Lifecycle Tracker - assets, photos, AI analysis and maintenance scheduling
 
 Parameters:
   Environment:
     Type: String
     Default: dev
     AllowedValues: [dev, test, prod]
-
+  AlertEmail:
+    Type: String
+    Default: ''
+    Description: >-
+      Email address to receive CloudWatch alarm notifications. Leave blank
+      to skip creating the SNS subscription.
   MaintenanceNotificationEmail:
     Type: String
     Default: ''
     Description: Optional email address for maintenance alerts
+  PendingUploadExpiration:
+    Type: String
+    Default: Disabled
+    AllowedValues: [Enabled, Disabled]
+    Description: >-
+      Whether the S3 lifecycle rule that expires pending/ photos after 7 days
+      is active. Keep Disabled on an existing environment until
+      scripts/migrate_pending_photos.py --verify passes, then redeploy with
+      Enabled (see docs/photo-storage-migration.md).
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
+  HasMaintenanceNotificationEmail: !Not
+    - !Equals
+      - !Ref MaintenanceNotificationEmail
+      - ''
 
 Globals:
   Function:
@@ -24,11 +45,6 @@ Globals:
       Variables:
         ASSET_TABLE_NAME: !Ref AssetTable
         LOG_LEVEL: INFO
-Conditions:
-  HasMaintenanceNotificationEmail: !Not
-    - !Equals
-      - !Ref MaintenanceNotificationEmail
-      - ''
 
 Resources:
   MaintenanceNotificationTopic:
@@ -36,6 +52,24 @@ Resources:
     Properties:
       TopicName: !Sub smart-asset-maintenance-${Environment}
       DisplayName: Smart Asset Maintenance
+      KmsMasterKeyId: alias/aws/sns
+
+  MaintenanceNotificationTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref MaintenanceNotificationTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: sns:Publish
+            Resource: !Ref MaintenanceNotificationTopic
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
 
   MaintenanceEmailSubscription:
     Type: AWS::SNS::Subscription
@@ -111,6 +145,31 @@ Resources:
               - http://localhost:5180
             AllowedHeaders: ['*']
             MaxAge: 300
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireUnclaimedPendingUploads
+            Status: !Ref PendingUploadExpiration
+            Prefix: pending/
+            ExpirationInDays: 7
+
+  AssetPhotoBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AssetPhotoBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt AssetPhotoBucket.Arn
+              - !Sub ${AssetPhotoBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
   UserPool:
     Type: AWS::Cognito::UserPool
     Properties:
@@ -202,7 +261,7 @@ Resources:
           CognitoAuthorizer:
             UserPoolArn: !GetAtt UserPool.Arn
       Cors:
-        AllowMethods: "'GET,POST,PUT,OPTIONS'"
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
         AllowHeaders: "'Content-Type,Authorization'"
         AllowOrigin: "'*'"
       GatewayResponses:
@@ -242,10 +301,23 @@ Resources:
                 - dynamodb:Scan
                 - dynamodb:Query
                 - dynamodb:TransactWriteItems
-              Resource:
-                - !GetAtt AssetTable.Arn
-                - !Sub '${AssetTable.Arn}/index/*'
-
+              Resource: !GetAtt AssetTable.Arn
+            - Sid: QueryAssetIndexes
+              Effect: Allow
+              Action:
+                - dynamodb:Query
+              Resource: !Sub '${AssetTable.Arn}/index/*'
+            - Sid: ClaimPendingPhotos
+              Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:DeleteObject
+              Resource: !Sub ${AssetPhotoBucket.Arn}/pending/*
+            - Sid: WriteClaimedPhotos
+              Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource: !Sub ${AssetPhotoBucket.Arn}/claimed/*
             - Sid: InvokeMaintenanceNovaLiteProfile
               Effect: Allow
               Action:
@@ -263,15 +335,14 @@ Resources:
               Condition:
                 StringEquals:
                   bedrock:InferenceProfileArn: !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-lite-v1:0
-
             - Sid: ReadAuthorizedAssetPhotos
               Effect: Allow
               Action:
                 - s3:GetObject
               Resource:
-                - !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-photos-${AWS::AccountId}-${AWS::Region}/pending/*
-                - !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-photos-${AWS::AccountId}-${AWS::Region}/assets/*
-
+                - !Sub ${AssetPhotoBucket.Arn}/pending/*
+                - !Sub ${AssetPhotoBucket.Arn}/claimed/*
+                - !Sub ${AssetPhotoBucket.Arn}/assets/*
       Events:
         CreateAsset:
           Type: Api
@@ -315,6 +386,18 @@ Resources:
             RestApiId: !Ref AssetApi
             Path: /assets/{assetId}/maintenance
             Method: GET
+        UpdateMaintenance:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AssetApi
+            Path: /assets/{assetId}/maintenance/{maintenanceId}
+            Method: PUT
+        DeleteMaintenance:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AssetApi
+            Path: /assets/{assetId}/maintenance/{maintenanceId}
+            Method: DELETE
         GenerateMaintenanceRecommendation:
           Type: Api
           Properties:
@@ -358,6 +441,8 @@ Resources:
         Variables:
           ASSET_PHOTO_BUCKET: !Sub ${AWS::StackName}-photos-${AWS::AccountId}-${AWS::Region}
           PHOTO_MODEL_ID: us.amazon.nova-lite-v1:0
+      # The bucket ARN is built from its name rather than !GetAtt because the
+      # bucket's S3 event notification already depends on this function.
       Policies:
         - Statement:
             - Sid: ReadPendingPhotos
@@ -459,6 +544,13 @@ Resources:
             Description: Daily asset maintenance and cleaning check
             Schedule: cron(0 13 * * ? *)
             Enabled: true
+            # RetryPolicy covers EventBridge-to-Lambda delivery only. Events that
+            # still cannot be delivered land in the dead-letter queue.
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+              MaximumEventAgeInSeconds: 3600
+            DeadLetterConfig:
+              Type: SQS
   HealthFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -475,11 +567,88 @@ Resources:
             Method: GET
             Auth:
               Authorizer: NONE
-  AssetApiErrorAlarm:
+
+  # --- Monitoring -----------------------------------------------------
+  # Explicit log groups (matching each function's auto-generated name) let
+  # us set retention and alarms as part of the stack instead of a manual
+  # post-deploy script. If a log group with the same name already exists
+  # outside this stack (e.g. from an earlier deploy before this template
+  # change), import it into the stack rather than deleting it, so its logs
+  # are kept: see "Migrating an existing deployment" in
+  # docs/cloudwatch-monitoring.md.
+
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub smart-asset-tracker-alerts-${Environment}
+
+  AlertsSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # Lambda auto-creates /aws/lambda/<function> on first invoke, so an existing
+  # environment already has these groups. Do NOT delete them to make room for
+  # this template: import them into the stack instead, which keeps their logs
+  # (see "Migrating an existing deployment" in docs/cloudwatch-monitoring.md).
+  # Retain keeps logs when the stack or a resource is deleted/replaced, and is
+  # required for CloudFormation resource import.
+  AssetApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/smart-asset-api-${Environment}
+      RetentionInDays: 30
+
+  HealthLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/smart-asset-health-${Environment}
+      RetentionInDays: 14
+
+  PhotoUploadLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/smart-asset-photo-upload-${Environment}
+      RetentionInDays: 14
+
+  PhotoAnalysisLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/smart-asset-photo-analysis-${Environment}
+      RetentionInDays: 30
+
+  PhotoAnalysisApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/smart-asset-photo-analysis-api-${Environment}
+      RetentionInDays: 14
+
+  MaintenanceSchedulerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/smart-asset-maintenance-scheduler-${Environment}
+      RetentionInDays: 30
+
+  AssetApiErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub smart-asset-api-errors-${Environment}
-      AlarmDescription: Asset API Lambda reported one or more errors
+      AlarmName: !Sub smart-asset-api-${Environment}-errors
+      AlarmDescription: Asset API Lambda returned errors
       Namespace: AWS/Lambda
       MetricName: Errors
       Dimensions:
@@ -488,20 +657,38 @@ Resources:
       Statistic: Sum
       Period: 300
       EvaluationPeriods: 1
-      DatapointsToAlarm: 1
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref MaintenanceNotificationTopic
-      OKActions:
-        - !Ref MaintenanceNotificationTopic
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
 
-  MaintenanceSchedulerErrorAlarm:
+  AssetApiThrottlesAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub smart-asset-scheduler-errors-${Environment}
-      AlarmDescription: Maintenance scheduler Lambda reported an error
+      AlarmName: !Sub smart-asset-api-${Environment}-throttles
+      AlarmDescription: Asset API Lambda was throttled
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AssetApiFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  MaintenanceSchedulerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub smart-asset-maintenance-scheduler-${Environment}-errors
+      AlarmDescription: >-
+        Maintenance scheduler Lambda returned errors (it runs on a schedule,
+        so failures are otherwise silent)
       Namespace: AWS/Lambda
       MetricName: Errors
       Dimensions:
@@ -510,20 +697,76 @@ Resources:
       Statistic: Sum
       Period: 300
       EvaluationPeriods: 1
-      DatapointsToAlarm: 1
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref MaintenanceNotificationTopic
-      OKActions:
-        - !Ref MaintenanceNotificationTopic
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
 
-  AssetApiGateway5xxAlarm:
+  PhotoUploadErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub smart-asset-api-5xx-${Environment}
-      AlarmDescription: API Gateway returned one or more server errors
+      AlarmName: !Sub smart-asset-photo-upload-${Environment}-errors
+      AlarmDescription: Photo upload Lambda returned errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref PhotoUploadFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  PhotoAnalysisErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub smart-asset-photo-analysis-${Environment}-errors
+      AlarmDescription: >-
+        Bedrock photo-analysis Lambda returned errors (this function runs
+        asynchronously off an S3 event, so failures are otherwise silent)
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref PhotoAnalysisFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  PhotoAnalysisThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub smart-asset-photo-analysis-${Environment}-throttles
+      AlarmDescription: Bedrock photo-analysis Lambda was throttled
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref PhotoAnalysisFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  ApiGateway5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub smart-asset-api-${Environment}-5xx
+      AlarmDescription: API Gateway returned server errors
       Namespace: AWS/ApiGateway
       MetricName: 5XXError
       Dimensions:
@@ -534,14 +777,11 @@ Resources:
       Statistic: Sum
       Period: 300
       EvaluationPeriods: 1
-      DatapointsToAlarm: 1
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref MaintenanceNotificationTopic
-      OKActions:
-        - !Ref MaintenanceNotificationTopic
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
 
   AssetTableReadThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -698,6 +938,7 @@ Resources:
               }
             ]
           }
+
 Outputs:
   MaintenanceNotificationTopicArn:
     Description: SNS topic for maintenance notifications
@@ -714,6 +955,9 @@ Outputs:
   AssetPhotoBucketName:
     Description: Private asset photograph bucket
     Value: !Ref AssetPhotoBucket
+  AlertsTopicArn:
+    Description: SNS topic for CloudWatch alarm notifications
+    Value: !Ref AlertsTopic
   CloudWatchDashboardName:
     Description: CloudWatch operational dashboard
     Value: !Ref AssetLifecycleDashboard

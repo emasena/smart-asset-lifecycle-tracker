@@ -8,10 +8,7 @@ from decimal import Decimal
 
 import boto3
 
-from maintenance_recommendation import (
-    MaintenanceRecommendationError,
-    calculate_maintenance_recommendation,
-)
+from maintenance_recommendation import calculate_maintenance_recommendation
 
 
 LOGGER = logging.getLogger()
@@ -36,34 +33,17 @@ def _as_of_date(event):
     return date.today().isoformat()
 
 
-def _asset_history(table, asset_id):
-    result = table.query(
-        KeyConditionExpression=(
-            "PK = :pk AND begins_with(SK, :maintenance)"
-        ),
-        ExpressionAttributeValues={
-            ":pk": f"ASSET#{asset_id}",
-            ":maintenance": "MAINTENANCE#",
-        },
-        ScanIndexForward=False,
-        Limit=10,
-    )
-
-    return [
-        {
-            key: value
-            for key, value in item.items()
-            if key not in {"PK", "SK"}
-        }
-        for item in result.get("Items", [])
-    ]
+MAX_HISTORY_RECORDS = 10
 
 
-def _asset_pages(table):
+def _scan_items(table):
     params = {
-        "FilterExpression": "SK = :metadata",
+        "FilterExpression": (
+            "SK = :metadata OR begins_with(SK, :maintenance)"
+        ),
         "ExpressionAttributeValues": {
             ":metadata": "METADATA",
+            ":maintenance": "MAINTENANCE#",
         },
     }
 
@@ -81,12 +61,43 @@ def _asset_pages(table):
         params["ExclusiveStartKey"] = last_key
 
 
+def _collect_assets_and_history(table):
+    """Read assets and their maintenance records in one table scan."""
+    assets = []
+    records_by_asset = {}
+
+    for item in _scan_items(table):
+        sort_key = item.get("SK", "")
+
+        if sort_key == "METADATA":
+            assets.append(item)
+        else:
+            records_by_asset.setdefault(item.get("PK"), []).append(item)
+
+    history_by_asset = {}
+
+    for partition_key, records in records_by_asset.items():
+        records.sort(key=lambda record: record["SK"], reverse=True)
+        history_by_asset[partition_key] = [
+            {
+                key: value
+                for key, value in record.items()
+                if key not in {"PK", "SK"}
+            }
+            for record in records[:MAX_HISTORY_RECORDS]
+        ]
+
+    return assets, history_by_asset
+
+
 def evaluate_assets(table, as_of_date):
     alerts = []
     evaluated_count = 0
     skipped_count = 0
 
-    for asset in _asset_pages(table):
+    assets, history_by_asset = _collect_assets_and_history(table)
+
+    for asset in assets:
         asset_id = asset.get("assetId")
 
         if not asset_id:
@@ -96,13 +107,15 @@ def evaluate_assets(table, as_of_date):
         evaluated_count += 1
 
         try:
-            history = _asset_history(table, asset_id)
             recommendation = calculate_maintenance_recommendation(
                 asset,
-                maintenance_history=history,
+                maintenance_history=history_by_asset.get(
+                    f"ASSET#{asset_id}",
+                    [],
+                ),
                 as_of_date=as_of_date,
             )
-        except MaintenanceRecommendationError as exc:
+        except Exception as exc:
             skipped_count += 1
             LOGGER.warning(
                 "Skipping maintenance calculation assetId=%s: %s",

@@ -50,6 +50,16 @@ class DomainTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             validate_asset({**VALID_ASSET, "usefulLifeMonths": 0})
 
+    def test_location_is_optional_text(self):
+        validate_asset({**VALID_ASSET, "location": "Building A, Room 204"})
+        validate_asset({**VALID_ASSET, "location": None})
+
+    def test_location_must_be_short_text(self):
+        for location in (42, "x" * 201):
+            with self.assertRaises(ValidationError) as error:
+                validate_asset({**VALID_ASSET, "location": location})
+            self.assertEqual(error.exception.fields, ["location"])
+
     def test_groups_are_parsed_from_api_gateway_claim(self):
         self.assertEqual(parse_groups("[Technician, Administrator]"), {"Technician", "Administrator"})
 

@@ -11,7 +11,10 @@
 | Set assignment fields (`assignedUserId`, `department`) on create | No | No | No | Yes | No |
 | Update operational fields | No | Yes | No | Yes | No |
 | Update financial/assignment fields | No | No | No | Yes | No |
-| Record maintenance | No | Planned | No | Planned | No |
+| View maintenance history | Yes | Yes | Yes | Yes | Yes |
+| Record maintenance | No | Yes | No | Yes | No |
+| Edit maintenance record | No | Own records, own department | No | Yes | No |
+| Delete maintenance record | No | No | No | Yes | No |
 | Manage users and assignments | No | No | No | Planned | No |
 
 ## SailPoint mapping

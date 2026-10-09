@@ -1,0 +1,279 @@
+{
+	"Name": "Smart Asset Lifecycle Tracker – Group 2 – Dev Cost Estimate",
+	"Total Cost": {
+		"monthly": "3.55",
+		"upfront": "0.00",
+		"12 months": "42.60"
+	},
+	"Metadata": {
+		"Currency": "USD",
+		"Locale": "en_US",
+		"Created On": "04/10/2026",
+		"Legal Disclaimer": "AWS Pricing Calculator provides only an estimate of your AWS fees and doesn't include any taxes that might apply. Your actual fees depend on a variety of factors, including your actual usage of AWS services.",
+		"Share Url": "https://calculator.aws/#/estimate?id=98808bdeb1af05aa13d820d3abe167b94a322e0a"
+	},
+	"Groups": {
+		"Services": [
+			{
+				"Service Name": "AWS Lambda",
+				"Description": "Standard backend functions",
+				"Region": "US East (N. Virginia)",
+				"Status": "",
+				"Service Cost": {
+					"monthly": "0.02",
+					"upfront": "0.00",
+					"12 months": "0.24"
+				},
+				"Properties": {
+					"Architecture": "x86",
+					"Invoke Mode": "Buffered",
+					"Number of requests": "10000 per month",
+					"Amount of ephemeral storage allocated": "512 MB"
+				}
+			},
+			{
+				"Service Name": "AWS Lambda",
+				"Description": "Photo analysis functions",
+				"Region": "US East (N. Virginia)",
+				"Status": "",
+				"Service Cost": {
+					"monthly": "0.02",
+					"upfront": "0.00",
+					"12 months": "0.24"
+				},
+				"Properties": {
+					"Architecture": "x86",
+					"Amount of ephemeral storage allocated": "512 MB",
+					"Invoke Mode": "Buffered",
+					"Number of requests": "100 per month"
+				}
+			},
+			{
+				"Service Name": "Amazon API Gateway",
+				"Description": "Asset Tracker REST API",
+				"Region": "US East (N. Virginia)",
+				"Status": "",
+				"Service Cost": {
+					"monthly": "0.04",
+					"upfront": "0.00",
+					"12 months": "0.48"
+				},
+				"Properties": {
+					"HTTP API requests units": "millions",
+					"REST API request units": "millions",
+					"Cache memory size (GB)": "None",
+					"WebSocket message units": "thousands",
+					"Average message size": "32 KB",
+					"Requests": "0.01 per month",
+					"Messages": "0 per second"
+				}
+			},
+			{
+				"Service Name": "DynamoDB on-demand capacity",
+				"Description": "Asset Tracker DynamoDB",
+				"Region": "US East (N. Virginia)",
+				"Status": "",
+				"Service Cost": {
+					"monthly": "0.07",
+					"upfront": "0.00",
+					"12 months": "0.84"
+				},
+				"Properties": {
+					"Table class": "Standard",
+					"Average item size (all attributes)": "1 KB",
+					"Data storage size": "0.1 GB"
+				}
+			},
+			{
+				"Service Name": "DynamoDB Backup and restore",
+				"Description": "Asset Tracker DynamoDB",
+				"Region": "US East (N. Virginia)",
+				"Status": "",
+				"Service Cost": {
+					"monthly": "0.20",
+					"upfront": "0.00",
+					"12 months": "2.40"
+				},
+				"Properties": {
+					"On-demand backup data storage": "0 GB",
+					"Point-In-Time Recovery (PITR) data storage": "1 GB",
+					"Table data restored": "0 GB"
+				}
+			},
+			{
+				"Service Name": "S3 Standard",
+				"Description": "Asset photos and SAM deployment artifacts",
+				"Region": "US East (N. Virginia)",
+				"Status": "",
+				"Service Cost": {
+					"monthly": "0.04",
+					"upfront": "0.00",
+					"12 months": "0.48"
+				},
+				"Properties": {
+					"S3 Standard storage": "1.5 GB per month",
+					"PUT, COPY, POST, LIST requests to S3 Standard": "1020",
+					"GET, SELECT, and all other requests from S3 Standard": "1000",
+					"Data returned by S3 Select": "0 GB per month",
+					"Data scanned by S3 Select": "0 GB per month"
+				}
+			},
+			{
+				"Service Name": "Data Transfer",
+				"Description": "Asset photos and SAM deployment artifacts",
+				"Region": "US East (N. Virginia)",
+				"Status": "",
+				"Service Cost": {
+					"monthly": "0.09",
+					"upfront": "0.00",
+					"12 months": "1.08"
+				},
+				"Properties": {
+					"DT Inbound: Not selected": "0 TB per month",
+					"DT Outbound: Internet": "1 GB per month"
+				}
+			},
+			{
+				"Service Name": "Amazon Cognito",
+				"Description": "Asset Tracker user authentication",
+				"Region": "US East (N. Virginia)",
+				"Status": "",
+				"Service Cost": {
+					"monthly": "0.00",
+					"upfront": "0.00",
+					"12 months": "0.00"
+				},
+				"Properties": {
+					"Optimization Rate for Token Requests": "0",
+					"Optimization Rate for App Clients": "0",
+					"Multi-region replication add-on": "Disabled",
+					"Number of monthly active users (MAU)": "20",
+					"Number of token requests": "0",
+					"Number of app clients": "0"
+				}
+			},
+			{
+				"Service Name": "Amazon",
+				"Description": "Asset photo analysis - Amazon Nova Lite",
+				"Region": "US East (N. Virginia)",
+				"Status": "",
+				"Service Cost": {
+					"monthly": "0.47",
+					"upfront": "0.00",
+					"12 months": "5.70"
+				},
+				"Properties": {
+					"Select your inference route": "Geo Cross Region Inference",
+					"Select your inference type": "On Demand - Standard",
+					"Average requests per minute": "1",
+					"Hours per day at this rate": "8",
+					"Average input tokens per request": "1",
+					"Average output tokens per request": "1",
+					"Average input images per request": "1",
+					"Average input image length in pixels (L)": "1024",
+					"Average input image width in pixels (W)": "1024",
+					"Requests per batch": "1",
+					"Number of documents per month": "1",
+					"Average tokens per document": "1000",
+					"Total Number of Records": "1",
+					"Average input tokens per record": "1",
+					"Average output tokens per record": "1"
+				}
+			},
+			{
+				"Service Name": "Amazon CloudWatch",
+				"Description": "Asset Tracker application logs and three monitoring alarms",
+				"Region": "US East (N. Virginia)",
+				"Status": "",
+				"Service Cost": {
+					"monthly": "0.80",
+					"upfront": "0.00",
+					"12 months": "9.65"
+				},
+				"Properties": {
+					"Number of mobile OTEL events and spans or spans per visit": "70",
+					"Mobile sampling rate": "1",
+					"Number of Metrics (includes detailed and custom metrics)": "0",
+					"GetMetricData: Number of metrics requested": "0",
+					"GetMetricWidgetImage: Number of metrics requested": "0",
+					"Number of other API requests": "0",
+					"Standard Logs: Data Ingested": "1 GB",
+					"Infrequent Access Logs: Data Ingested": "0 GB",
+					"Standard Logs Delivered to CloudWatch Logs": "0 GB",
+					"Infrequent Access Logs Delivered to CloudWatch Logs": "0 GB",
+					"Logs Delivered to S3: Data Ingested": "0 GB",
+					"Number of Standard Resolution Alarm Metrics": "3"
+				}
+			},
+			{
+				"Service Name": "Amazon EventBridge",
+				"Description": "Planned asset lifecycle events",
+				"Region": "US East (N. Virginia)",
+				"Status": "",
+				"Service Cost": {
+					"monthly": "0.01",
+					"upfront": "0.00",
+					"12 months": "0.12"
+				},
+				"Properties": {
+					"Size of the payload": "1 KB",
+					"Number of custom events": "10000 per month",
+					"Number of AWS management events": "million per month",
+					"Number of events delivered to another event bus": "million per month",
+					"Number of events delivered to a service in the same account": "10000 per month"
+				}
+			},
+			{
+				"Service Name": "Standard topics",
+				"Description": "CloudWatch alarm and recovery email notifications",
+				"Region": "US East (N. Virginia)",
+				"Status": "",
+				"Service Cost": {
+					"monthly": "0.02",
+					"upfront": "0.00",
+					"12 months": "0.24"
+				},
+				"Properties": {
+					"Requests": "1000 per month",
+					"EMAIL/EMAIL-JSON Notifications": "2000 per month"
+				}
+			},
+			{
+				"Service Name": "AWS Amplify",
+				"Description": "Asset Tracker React frontend hosting",
+				"Region": "US East (N. Virginia)",
+				"Status": "",
+				"Service Cost": {
+					"monthly": "1.75",
+					"upfront": "0.00",
+					"12 months": "21.00"
+				},
+				"Properties": {
+					"Select build instance size": "Standard (8 GB Memory, 4 vCPUs)",
+					"Duration of each request (in ms)": "500",
+					"Number of build minutes": "100 per month",
+					"Data stored per month": "200 MB",
+					"Data served per month": "5 GB"
+				}
+			},
+			{
+				"Service Name": "AWS X-Ray",
+				"Description": "Asset Tracker API and Lambda tracing",
+				"Region": "US East (N. Virginia)",
+				"Status": "",
+				"Service Cost": {
+					"monthly": "0.01",
+					"upfront": "0.00",
+					"12 months": "0.12"
+				},
+				"Properties": {
+					"Sampling rate": "0.1",
+					"Add X-Ray Insights": "No",
+					"Number of requests per month": "10000",
+					"Number of queries per month": "0",
+					"Traces retrieved per query": "0"
+				}
+			}
+		]
+	}
+}

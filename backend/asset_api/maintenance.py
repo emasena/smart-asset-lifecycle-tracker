@@ -69,6 +69,12 @@ def _cost(payload):
             ["cost"],
         ) from exc
 
+    if not amount.is_finite():
+        raise MaintenanceValidationError(
+            "cost must be a valid number.",
+            ["cost"],
+        )
+
     if amount < 0:
         raise MaintenanceValidationError(
             "cost cannot be negative.",
@@ -84,10 +90,7 @@ def validate_maintenance(payload):
             "Maintenance information must be a JSON object."
         )
 
-    maintenance_type = _required_string(
-        payload,
-        "maintenanceType",
-    )
+    maintenance_type = _required_string(payload, "maintenanceType")
 
     if maintenance_type not in MAINTENANCE_TYPES:
         raise MaintenanceValidationError(
@@ -95,12 +98,8 @@ def validate_maintenance(payload):
             ["maintenanceType"],
         )
 
-    notes = _required_string(payload, "notes")
-
-    performed_date = _optional_date(
-        payload,
-        "performedDate",
-    )
+    description = _required_string(payload, "description")
+    performed_date = _optional_date(payload, "performedDate")
 
     if not performed_date:
         raise MaintenanceValidationError(
@@ -108,23 +107,25 @@ def validate_maintenance(payload):
             ["performedDate"],
         )
 
-    condition_after_service = payload.get(
-        "conditionAfterService"
-    )
+    condition_after = payload.get("conditionAfter")
 
-    if condition_after_service not in CONDITIONS:
-        raise MaintenanceValidationError(
-            (
-                "conditionAfterService is required "
-                "and must be supported."
-            ),
-            ["conditionAfterService"],
-        )
+    if condition_after not in (None, ""):
+        if condition_after not in CONDITIONS:
+            raise MaintenanceValidationError(
+                "conditionAfter is not supported.",
+                ["conditionAfter"],
+            )
+    else:
+        condition_after = None
 
     return {
         "maintenanceType": maintenance_type,
-        "notes": notes,
+        "description": description,
         "performedDate": performed_date,
-        "conditionAfterService": condition_after_service,
+        "conditionAfter": condition_after,
+        "nextMaintenanceDate": _optional_date(
+            payload,
+            "nextMaintenanceDate",
+        ),
         "cost": _cost(payload),
     }
