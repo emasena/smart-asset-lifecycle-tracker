@@ -783,6 +783,162 @@ Resources:
       AlarmActions: [!Ref AlertsTopic]
       OKActions: [!Ref AlertsTopic]
 
+  AssetTableReadThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub smart-asset-read-throttles-${Environment}
+      AlarmDescription: DynamoDB asset table reported read throttling
+      Namespace: AWS/DynamoDB
+      MetricName: ReadThrottleEvents
+      Dimensions:
+        - Name: TableName
+          Value: !Ref AssetTable
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref MaintenanceNotificationTopic
+
+  AssetTableWriteThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub smart-asset-write-throttles-${Environment}
+      AlarmDescription: DynamoDB asset table reported write throttling
+      Namespace: AWS/DynamoDB
+      MetricName: WriteThrottleEvents
+      Dimensions:
+        - Name: TableName
+          Value: !Ref AssetTable
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref MaintenanceNotificationTopic
+
+  AssetLifecycleDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub smart-asset-lifecycle-${Environment}
+      DashboardBody:
+        Fn::Sub: |
+          {
+            "start": "-PT24H",
+            "periodOverride": "inherit",
+            "widgets": [
+              {
+                "type": "text",
+                "x": 0,
+                "y": 0,
+                "width": 24,
+                "height": 2,
+                "properties": {
+                  "markdown": "# Smart Asset Lifecycle Tracker\nSecurity, API, Lambda and DynamoDB monitoring"
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 2,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "Asset API Lambda",
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "stat": "Sum",
+                  "period": 300,
+                  "metrics": [
+                    ["AWS/Lambda", "Invocations", "FunctionName", "${AssetApiFunction}"],
+                    [".", "Errors", ".", "."],
+                    [".", "Throttles", ".", "."]
+                  ]
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 2,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "Asset API Duration",
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "stat": "Average",
+                  "period": 300,
+                  "metrics": [
+                    ["AWS/Lambda", "Duration", "FunctionName", "${AssetApiFunction}"]
+                  ]
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 8,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "API Gateway Requests",
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "stat": "Sum",
+                  "period": 300,
+                  "metrics": [
+                    ["AWS/ApiGateway", "Count", "ApiName", "smart-asset-tracker-${Environment}", "Stage", "${Environment}"],
+                    [".", "4XXError", ".", ".", ".", "."],
+                    [".", "5XXError", ".", ".", ".", "."]
+                  ]
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 8,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "Maintenance Scheduler",
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "stat": "Sum",
+                  "period": 300,
+                  "metrics": [
+                    ["AWS/Lambda", "Invocations", "FunctionName", "${MaintenanceSchedulerFunction}"],
+                    [".", "Errors", ".", "."]
+                  ]
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 14,
+                "width": 24,
+                "height": 6,
+                "properties": {
+                  "title": "DynamoDB Asset Table",
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "stat": "Sum",
+                  "period": 300,
+                  "metrics": [
+                    ["AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "${AssetTable}"],
+                    [".", "ConsumedWriteCapacityUnits", ".", "."],
+                    [".", "ReadThrottleEvents", ".", "."],
+                    [".", "WriteThrottleEvents", ".", "."]
+                  ]
+                }
+              }
+            ]
+          }
+
 Outputs:
   MaintenanceNotificationTopicArn:
     Description: SNS topic for maintenance notifications
@@ -802,3 +958,6 @@ Outputs:
   AlertsTopicArn:
     Description: SNS topic for CloudWatch alarm notifications
     Value: !Ref AlertsTopic
+  CloudWatchDashboardName:
+    Description: CloudWatch operational dashboard
+    Value: !Ref AssetLifecycleDashboard
