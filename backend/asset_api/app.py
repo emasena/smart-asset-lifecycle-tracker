@@ -880,9 +880,14 @@ def lambda_handler(event, _context):
             return _list(event, claims, groups)
 
         if method == "PUT" and asset_id:
-            return _update(event, asset_id, claims, groups)
+            return _update(
+                event,
+                asset_id,
+                claims,
+                groups,
+            )
 
-            return response(
+        return response(
             405,
             {
                 "error": "MethodNotAllowed",
