@@ -1316,7 +1316,6 @@ if (maintenanceAsset) {
       <th>Category</th>
       <th>Description</th>
       <th>Department</th>
-      <th>Location</th>
       <th>Status</th>
       <th>Maintenance</th>
     </tr>
@@ -1329,7 +1328,6 @@ if (maintenanceAsset) {
         <td>{asset.category}</td>
         <td>{asset.description}</td>
         <td>{asset.department || "—"}</td>
-        <td>{asset.location || "—"}</td>
         <td>
           <span className="status">
             {asset.status}
