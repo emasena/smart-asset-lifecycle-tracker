@@ -61,11 +61,29 @@ Resources:
           AttributeType: S
         - AttributeName: SK
           AttributeType: S
+        - AttributeName: assignedUserId
+          AttributeType: S
+        - AttributeName: department
+          AttributeType: S
       KeySchema:
         - AttributeName: PK
           KeyType: HASH
         - AttributeName: SK
           KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: AssignedUserIndex
+          KeySchema:
+            - AttributeName: assignedUserId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: DepartmentIndex
+          KeySchema:
+            - AttributeName: department
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
   AssetPhotoBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
@@ -224,7 +242,10 @@ Resources:
                 - dynamodb:Scan
                 - dynamodb:Query
                 - dynamodb:TransactWriteItems
-              Resource: !GetAtt AssetTable.Arn
+              Resource:
+                - !GetAtt AssetTable.Arn
+                - !Sub '${AssetTable.Arn}/index/*'
+
             - Sid: InvokeMaintenanceNovaLiteProfile
               Effect: Allow
               Action:
@@ -242,6 +263,7 @@ Resources:
               Condition:
                 StringEquals:
                   bedrock:InferenceProfileArn: !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-lite-v1:0
+
             - Sid: ReadAuthorizedAssetPhotos
               Effect: Allow
               Action:
@@ -249,6 +271,7 @@ Resources:
               Resource:
                 - !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-photos-${AWS::AccountId}-${AWS::Region}/pending/*
                 - !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-photos-${AWS::AccountId}-${AWS::Region}/assets/*
+
       Events:
         CreateAsset:
           Type: Api

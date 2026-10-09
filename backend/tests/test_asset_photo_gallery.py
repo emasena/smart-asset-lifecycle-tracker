@@ -23,9 +23,15 @@ except ModuleNotFoundError:
     boto3_module.client = MagicMock()
     sys.modules["boto3"] = boto3_module
 
-    conditions_module = types.ModuleType("boto3.dynamodb.conditions")
+    sys.modules["boto3.dynamodb"] = types.ModuleType(
+        "boto3.dynamodb"
+    )
+    conditions_module = types.ModuleType(
+    "boto3.dynamodb.conditions"
+)
     conditions_module.Attr = MagicMock
-    sys.modules["boto3.dynamodb"] = types.ModuleType("boto3.dynamodb")
+    conditions_module.Key = MagicMock
+
     sys.modules["boto3.dynamodb.conditions"] = conditions_module
 
     types_module = types.ModuleType("boto3.dynamodb.types")

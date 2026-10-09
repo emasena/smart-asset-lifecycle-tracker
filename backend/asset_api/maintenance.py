@@ -84,7 +84,10 @@ def validate_maintenance(payload):
             "Maintenance information must be a JSON object."
         )
 
-    maintenance_type = _required_string(payload, "maintenanceType")
+    maintenance_type = _required_string(
+        payload,
+        "maintenanceType",
+    )
 
     if maintenance_type not in MAINTENANCE_TYPES:
         raise MaintenanceValidationError(
@@ -92,8 +95,12 @@ def validate_maintenance(payload):
             ["maintenanceType"],
         )
 
-    description = _required_string(payload, "description")
-    performed_date = _optional_date(payload, "performedDate")
+    notes = _required_string(payload, "notes")
+
+    performed_date = _optional_date(
+        payload,
+        "performedDate",
+    )
 
     if not performed_date:
         raise MaintenanceValidationError(
@@ -101,25 +108,23 @@ def validate_maintenance(payload):
             ["performedDate"],
         )
 
-    condition_after = payload.get("conditionAfter")
+    condition_after_service = payload.get(
+        "conditionAfterService"
+    )
 
-    if condition_after not in (None, ""):
-        if condition_after not in CONDITIONS:
-            raise MaintenanceValidationError(
-                "conditionAfter is not supported.",
-                ["conditionAfter"],
-            )
-    else:
-        condition_after = None
+    if condition_after_service not in CONDITIONS:
+        raise MaintenanceValidationError(
+            (
+                "conditionAfterService is required "
+                "and must be supported."
+            ),
+            ["conditionAfterService"],
+        )
 
     return {
         "maintenanceType": maintenance_type,
-        "description": description,
+        "notes": notes,
         "performedDate": performed_date,
-        "conditionAfter": condition_after,
-        "nextMaintenanceDate": _optional_date(
-            payload,
-            "nextMaintenanceDate",
-        ),
+        "conditionAfterService": condition_after_service,
         "cost": _cost(payload),
     }

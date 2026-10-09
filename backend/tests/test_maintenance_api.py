@@ -16,7 +16,7 @@ ASSET = {
     "assetId": "AST-TEST",
     "assetTag": "TEST-001",
     "category": "Laptop",
-    "description": "Test laptop",
+    "notes": "Test laptop",
     "department": "IT",
     "assignedUserId": "employee-1",
     "condition": "Good",
@@ -27,9 +27,9 @@ ASSET = {
 
 MAINTENANCE = {
     "maintenanceType": "Preventive",
-    "description": "Cleaned ventilation system",
+    "notes": "Cleaned ventilation system",
     "performedDate": "2026-10-01",
-    "conditionAfter": "Good",
+    "conditionAfterService": "Good",
     "nextMaintenanceDate": "2027-04-01",
     "cost": "125.00",
 }
@@ -196,7 +196,7 @@ class MaintenanceApiTests(unittest.TestCase):
                     "maintenanceId": "MNT-12345678",
                     "assetId": "AST-TEST",
                     "maintenanceType": "Preventive",
-                    "description": "Cleaned ventilation system",
+                    "notes": "Cleaned ventilation system",
                 }
             ]
         }

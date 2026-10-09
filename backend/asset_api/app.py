@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import boto3
-from boto3.dynamodb.conditions import Attr
+from boto3.dynamodb.conditions import Attr, Key
 from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
 
@@ -117,16 +117,25 @@ def _existing_tag(tag, excluding_asset_id=None):
 
 
 def _condition_failed(exc):
-    if exc.response.get("Error", {}).get("Code") != "TransactionCanceledException":
+    if (
+        exc.response.get("Error", {}).get("Code") != "TransactionCanceledException"
+):
         return False
     return any(reason.get("Code") == "ConditionalCheckFailed"
-               for reason in exc.response.get("CancellationReasons", []))
-
-
+               for reason in exc.response.get("CancellationReasons",
+[],
+)
+)
 def _clean_asset(item):
     if not item:
         return None
-    return {key: value for key, value in item.items() if key not in {"PK", "SK"}}
+
+    return {
+        key: value
+        for key, value in item.items()
+        if key not in {"PK", "SK"}
+    }
+
 
 def _asset_view(item):
     asset = _clean_asset(item)
@@ -149,6 +158,28 @@ def _asset_view(item):
         asset["depreciation"] = None
 
     return asset
+
+
+def _normalise_index_fields(item):
+    for field in ("assignedUserId", "department"):
+        value = item.get(field)
+
+        if value is None or (
+            isinstance(value, str)
+            and not value.strip()
+        ):
+            item.pop(field, None)
+
+        elif not isinstance(value, str):
+            raise ValidationError(
+                f"{field} must be a string.",
+                [field],
+            )
+
+        else:
+            item[field] = value.strip()
+
+    return item
 
 def _create(event, claims, groups):
     if not can_create(groups):
@@ -193,16 +224,26 @@ def _create(event, claims, groups):
 
     asset_id = f"AST-{uuid.uuid4().hex[:8].upper()}"
     now = datetime.now(timezone.utc).isoformat()
+
     item = {
         **payload,
         **_asset_key(asset_id),
         "assetId": asset_id,
-        "depreciationMethod": payload.get("depreciationMethod", "straight-line"),
-        "reviewStatus": payload.get("reviewStatus", "ManualEntry"),
+        "depreciationMethod": payload.get(
+            "depreciationMethod",
+            "straight-line",
+        ),
+        "reviewStatus": payload.get(
+            "reviewStatus",
+            "ManualEntry",
+        ),
         "createdBy": claims.get("sub"),
         "createdAt": now,
         "updatedAt": now,
     }
+
+    item = _normalise_index_fields(item)
+
     item["purchaseValue"] = Decimal(str(item["purchaseValue"]))
     item["salvageValue"] = Decimal(str(item["salvageValue"]))
 
@@ -338,14 +379,35 @@ def _get_photo(asset_id, claims, groups):
             ),
         },
     )
+def _encode_next_token(last_evaluated_key):
+    if not last_evaluated_key:
+        return None
+
+    raw = json.dumps(last_evaluated_key, default=_json_default).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("utf-8")
+
+
+def _decode_next_token(token):
+    if not token:
+        return None
+
+    try:
+        raw = base64.urlsafe_b64decode(token.encode("utf-8")).decode("utf-8")
+        return json.loads(raw)
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        raise ValidationError("Invalid nextToken.")
 
 def _list(event, claims, groups):
     params = event.get("queryStringParameters") or {}
+
     filters = Attr("SK").eq("METADATA")
+
     if params.get("status"):
         filters &= Attr("status").eq(params["status"])
+
     if params.get("category"):
         filters &= Attr("category").eq(params["category"])
+
     if params.get("q"):
         query = params["q"]
         filters &= (
@@ -353,12 +415,74 @@ def _list(event, claims, groups):
             | Attr("description").contains(query)
             | Attr("manufacturer").contains(query)
         )
+    request = {
+        "FilterExpression": filters,
+        "Limit": 100,
+    }
 
-    result = TABLE.scan(FilterExpression=filters, Limit=100)
-    permitted = [_asset_view(item) for item in result.get("Items", []) if can_read(groups, claims, item)]
-    return response(200, {"items": permitted, "count": len(permitted)})
+    if params.get("nextToken"):
+        request["ExclusiveStartKey"] = _decode_next_token(
+            params["nextToken"]
+        )
 
+    if groups.intersection({"Administrator", "Auditor"}):
+        result = TABLE.scan(**request)
 
+    elif groups.intersection({"Manager", "Technician"}):
+        department = claims.get("custom:department")
+
+        if not department:
+            return response(
+                403,
+                {
+                    "error": "Forbidden",
+                    "message": (
+                        "Your account does not have a "
+                        "department assigned."
+                    ),
+                },
+            )
+
+        request["IndexName"] = "DepartmentIndex"
+        request["KeyConditionExpression"] = Key(
+            "department"
+        ).eq(department)
+        result = TABLE.query(**request)
+
+    elif "Employee" in groups:
+        request["IndexName"] = "AssignedUserIndex"
+        request["KeyConditionExpression"] = Key(
+            "assignedUserId"
+        ).eq(claims["sub"])
+        result = TABLE.query(**request)
+
+    else:
+        return response(
+            403,
+            {
+                "error": "Forbidden",
+                "message": (
+                    "You do not have permission to list assets."
+                ),
+            },
+        )
+
+    items = [
+        _asset_view(item)
+        for item in result.get("Items", [])
+    ]
+
+    body = {
+        "items": items,
+        "count": len(items),
+    }
+
+    if result.get("LastEvaluatedKey"):
+        body["nextToken"] = _encode_next_token(
+            result["LastEvaluatedKey"]
+        )
+
+    return response(200, body)
 def _update(event, asset_id, claims, groups):
     existing = TABLE.get_item(Key=_asset_key(asset_id), ConsistentRead=True).get("Item")
     if not existing:
@@ -381,15 +505,27 @@ def _update(event, asset_id, claims, groups):
     if not validate_update_permissions(groups, changed_fields):
         return response(403, {"error": "Forbidden", "message": "You do not have permission to update these asset fields."})
 
-    candidate = {**_clean_asset(existing), **{k: v for k, v in payload.items() if k not in immutable}}
+    candidate = {
+        **_clean_asset(existing),
+        **{
+            key: value
+            for key, value in payload.items()
+            if key not in immutable
+        },
+    }
+
     validate_asset(candidate)
+    candidate = _normalise_index_fields(candidate)
+
     candidate["assetTag"] = _asset_tag(candidate["assetTag"])
     candidate["purchaseValue"] = Decimal(str(candidate["purchaseValue"]))
     candidate["salvageValue"] = Decimal(str(candidate["salvageValue"]))
     candidate["updatedAt"] = datetime.now(timezone.utc).isoformat()
     candidate["updatedBy"] = claims.get("sub")
+
     old_tag = _asset_tag(existing["assetTag"])
     new_tag = candidate["assetTag"]
+
     if old_tag != new_tag:
         if _existing_tag(new_tag, excluding_asset_id=asset_id):
             return response(409, {"error": "Conflict", "message": "An asset with this asset tag already exists."})
@@ -456,11 +592,7 @@ def _create_maintenance(event, asset_id, claims, groups):
                 "message": "You cannot add maintenance to this asset.",
             },
         )
-
-    if (
-        "Administrator" not in groups
-        and "Technician" not in groups
-    ):
+    if not groups.intersection({"Administrator", "Technician"}):
         return response(
             403,
             {
@@ -473,18 +605,20 @@ def _create_maintenance(event, asset_id, claims, groups):
         )
 
     maintenance = validate_maintenance(_body(event))
-    now = datetime.now(timezone.utc).isoformat()
     maintenance_id = f"MNT-{uuid.uuid4().hex[:8].upper()}"
 
     item = {
         **maintenance,
         "PK": f"ASSET#{asset_id}",
-        "SK": f"MAINTENANCE#{now}#{maintenance_id}",
+        "SK": (
+            f"MAINTENANCE#{maintenance['performedDate']}#"
+            f"{maintenance_id}"
+        ),
         "maintenanceId": maintenance_id,
         "assetId": asset_id,
         "performedBy": claims.get("sub"),
         "performedByEmail": claims.get("email"),
-        "createdAt": now,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
     }
 
     item = {
@@ -672,10 +806,11 @@ def _generate_maintenance_recommendation(
             "generatedForReview": True,
         },
     )
-
 def lambda_handler(event, _context):
     method = event.get("httpMethod", "")
-    asset_id = (event.get("pathParameters") or {}).get("assetId")
+    asset_id = (event.get("pathParameters") or {}).get(
+        "assetId"
+    )
     route = event.get("resource") or event.get("path") or ""
     claims, groups = _identity(event)
 
@@ -747,7 +882,7 @@ def lambda_handler(event, _context):
         if method == "PUT" and asset_id:
             return _update(event, asset_id, claims, groups)
 
-        return response(
+            return response(
             405,
             {
                 "error": "MethodNotAllowed",

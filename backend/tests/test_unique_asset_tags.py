@@ -42,6 +42,7 @@ def _load_api():
     dynamodb = types.ModuleType("boto3.dynamodb")
     conditions = types.ModuleType("boto3.dynamodb.conditions")
     conditions.Attr = _Attr
+    conditions.Key = _Attr
     types_module = types.ModuleType("boto3.dynamodb.types")
     types_module.TypeSerializer = _Serializer
     botocore = types.ModuleType("botocore")

@@ -14,17 +14,34 @@ The asset-tag lock record enforces `assetTag` uniqueness. It is written alongsid
 
 Week 1 uses asset metadata records. The shared partition leaves room for maintenance and immutable history without creating unrelated tables.
 
-## Week 1 access patterns
+## Asset access patterns
 
 | Access pattern | Implementation |
 |---|---|
 | Create asset | Conditional `TransactWriteItems` (asset item + asset-tag lock item) |
 | View asset by ID | Strongly consistent `GetItem` |
-| Search small demonstration dataset | Filtered `Scan`, maximum 100 evaluated items |
-| Employee scope | Compare Cognito `sub` to `assignedUserId` |
-| Manager scope | Compare `custom:department` claim to asset department |
+| Administrator and Auditor listing | Paginated `Scan` |
+| Employee listing | `Query` on `AssignedUserIndex` using the Cognito `sub` claim |
+| Manager and Technician listing | `Query` on `DepartmentIndex` using the Cognito `custom:department` claim |
+| Continue a large result set | Return and accept an encoded `nextToken` |
 
-The filtered scan is intentionally limited to the ten-record classroom milestone. Before production scale, add indexes or a dedicated search service for the documented query patterns.
+## Global secondary indexes
+
+| Index | Partition key | Purpose |
+|---|---|---|
+| `AssignedUserIndex` | `assignedUserId` | Find assets assigned to a particular employee |
+| `DepartmentIndex` | `department` | Find assets belonging to a particular department |
+
+DynamoDB returns results in pages. When more results are available, the API returns a `nextToken`, which the frontend can use to load the next page.
+
+Optional index fields that are empty or unknown are omitted from the DynamoDB item because a global secondary index key cannot contain an empty string or `null`.
 
 Financial values are stored as DynamoDB numbers created from Python `Decimal`. Unknown optional data is stored as `null`, never guessed.
 
+## Maintenance history records
+
+Maintenance events use the asset partition and a date-ordered sort key:
+
+```text
+PK = ASSET#<assetId>
+SK = MAINTENANCE#<performedDate>#<maintenanceId>
