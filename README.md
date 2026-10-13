@@ -4,7 +4,9 @@ A secure serverless asset-management application built with Amazon Cognito, API 
 
 ## Current milestone
 
-The starter implements the Week 1 foundation:
+The project has completed the Week 3 milestone. It now combines the Week 1
+serverless foundation, Week 2 secure photo intelligence, and Week 3 maintenance
+intelligence:
 
 - AWS SAM infrastructure
 - Cognito user pool and five application groups
@@ -13,7 +15,12 @@ The starter implements the Week 1 foundation:
 - Python Lambda REST API for create, list, view, and update
 - Backend RBAC and record-scope authorization
 - React login and manual asset-entry interface
-- Ten sample assets and unit tests
+- Private S3 photo storage and an authorized photo gallery
+- Amazon Bedrock photo analysis with human approval before applying suggestions
+- Maintenance history, deterministic lifecycle calculations, and AI-assisted recommendations
+- Straight-line depreciation calculated in application code rather than by the model
+- Scheduled maintenance evaluation with Amazon EventBridge and SNS notifications
+- Ten sample assets and automated backend tests
 - SailPoint-to-Cognito role mapping documentation
 
 ## Architecture
@@ -118,7 +125,7 @@ For employee record scoping, set each asset's `assignedUserId` to the user's Cog
 - Technician updates are restricted to operational fields.
 - Financial values are validated with `Decimal`, never floating point.
 - Secrets and tokens must not be committed.
-- The current scan-based search is appropriate only for the small Week 1 dataset; production access patterns should use indexes.
+- The current scan-based search and scheduled evaluation are appropriate only for the small demonstration dataset; production access patterns should use indexes and partitioned or event-driven processing.
 
 ## Week 2: Secure Photo Intelligence
 
@@ -182,3 +189,78 @@ sam build --template-file infrastructure/template.yaml
 cd frontend
 npm ci
 npm run build
+```
+
+## Week 3: Maintenance Intelligence
+
+Week 3 extends the application from asset registration and secure photo
+analysis into maintenance history, lifecycle calculations, scheduled alerts,
+and AI-assisted recommendations. Deterministic application rules remain the
+source of truth for dates, status, priority, and financial calculations;
+Amazon Bedrock adds contextual guidance without replacing those controls.
+
+### Features completed
+
+- Maintenance records stored under each asset using the
+  `MAINTENANCE#<date>#<id>` DynamoDB sort-key pattern
+- Create, list, update, and delete maintenance operations with backend
+  validation and authorization
+- Authenticated Cognito identity recorded server-side as `performedBy` and
+  `performedByEmail`
+- Record-scope enforcement for Administrator, Manager, Technician, Auditor,
+  and Employee roles
+- Optimistic concurrency checks that return `409` for stale maintenance
+  updates
+- Atomic record movement when an edited maintenance date changes its sort key
+- Deterministic maintenance status, priority, recommended service date, and
+  cleaning date calculations
+- Condition-aware service intervals and maintenance-history-aware
+  recommendations
+- Straight-line depreciation using completed monthly anniversaries, useful
+  life, purchase value, and salvage value
+- Amazon Bedrock maintenance guidance returned as validated structured JSON
+- Human review of AI-generated guidance before operational action
+- EventBridge-driven maintenance evaluation and consolidated Amazon SNS alerts
+  for assets that are due soon or overdue
+- Error isolation so one malformed asset does not stop the scheduled evaluation
+
+### Security and AI boundaries
+
+- API Gateway validates the Cognito token before protected maintenance routes
+  are invoked.
+- Lambda authorizes access to the target asset before returning its maintenance
+  history or generating a recommendation.
+- Browser-supplied identity fields are ignored; performer identity comes from
+  verified Cognito claims.
+- Read-only roles cannot modify maintenance records, and Technician access is
+  limited to the permitted department and ownership scope.
+- Asset and maintenance context sent to Bedrock is explicitly selected and
+  minimized.
+- Bedrock does not calculate depreciation, maintenance dates, status, or
+  priority. Those values are calculated and validated by application code.
+- Invalid model JSON and Bedrock service errors fail safely instead of being
+  treated as approved recommendations.
+
+### Week 3 validation
+
+Run the complete automated suite and deployment checks:
+
+```bash
+python3 -m unittest discover -s backend/tests -v
+sam validate --template-file infrastructure/template.yaml
+sam build --template-file infrastructure/template.yaml
+
+cd frontend
+npm ci
+npm run build
+```
+
+The Week 3 coverage includes maintenance validation and authorization,
+pagination, concurrent updates, deterministic recommendations, depreciation,
+scheduled evaluation, SNS notification behavior, and Bedrock response and
+failure handling.
+
+See [`docs/depreciation.md`](docs/depreciation.md),
+[`docs/ai-recommendations.md`](docs/ai-recommendations.md), and the
+[`Week 3 architecture diagram`](docs/architecture/smart-asset-tracker-week-3-architecture.png)
+for the supporting design documentation.
