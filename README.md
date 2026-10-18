@@ -4,24 +4,18 @@ A secure serverless asset-management application built with Amazon Cognito, API 
 
 ## Current milestone
 
-The project has completed the Week 3 milestone. It now combines the Week 1
-serverless foundation, Week 2 secure photo intelligence, and Week 3 maintenance
-intelligence:
+The four-week project and final application demonstration are complete.
 
-- AWS SAM infrastructure
-- Cognito user pool and five application groups
-- API Gateway Cognito authorizer
-- DynamoDB asset table
-- Python Lambda REST API for create, list, view, and update
-- Backend RBAC and record-scope authorization
-- React login and manual asset-entry interface
-- Private S3 photo storage and an authorized photo gallery
-- Amazon Bedrock photo analysis with human approval before applying suggestions
-- Maintenance history, deterministic lifecycle calculations, and AI-assisted recommendations
-- Straight-line depreciation calculated in application code rather than by the model
-- Scheduled maintenance evaluation with Amazon EventBridge and SNS notifications
-- Ten sample assets and automated backend tests
-- SailPoint-to-Cognito role mapping documentation
+- **Week 1:** Serverless infrastructure, Cognito authentication, asset APIs, and role-based authorization.
+- **Week 2:** Private S3 photo storage, authorized photo access, and Amazon Bedrock photo analysis.
+- **Week 3:** Maintenance history, deterministic depreciation, AI-assisted recommendations, and scheduled notifications.
+- **Week 4:** Security testing, CloudWatch monitoring, deployment verification, and final project documentation.
+
+**Live application:** https://main.dx980x98nt3d5.amplifyapp.com/
+
+The application requires an authorized account. Access depends on the user's assigned role and asset scope.
+
+SailPoint and Okta integration is planned as a future extension for identity governance, lifecycle provisioning, enterprise SSO, and MFA.
 
 ## Architecture
 
@@ -264,3 +258,92 @@ See [`docs/depreciation.md`](docs/depreciation.md),
 [`docs/ai-recommendations.md`](docs/ai-recommendations.md), and the
 [`Week 3 architecture diagram`](docs/architecture/smart-asset-tracker-week-3-architecture.png)
 for the supporting design documentation.
+
+## Week 4: Security Testing, Monitoring, and Final Demonstration
+
+Week 4 focused on validating application security, monitoring operational
+behavior, and completing the final demonstration and project documentation.
+
+### Security testing
+
+Security validation covered:
+
+- Authentication requirements for protected API routes
+- Role-based restrictions on asset and maintenance operations
+- Department and assigned-user access boundaries
+- Read-only access for Auditor users
+- Private S3 photo storage and authorized temporary image access
+- Input validation and error handling
+- Automated backend security and authorization tests
+
+API Gateway validates Cognito tokens, and Lambda enforces application
+permissions and record-level access. Photo URLs are generated only after
+the backend authorizes access to the associated asset.
+
+### CloudWatch monitoring
+
+CloudWatch dashboards, logs, and alarms support operational monitoring
+and investigation of application failures.
+
+Monitoring complements automated tests by providing visibility into
+the deployed application's behavior.
+
+### Final demonstration
+
+The final presentation demonstrated the application workflow, including:
+
+- Cognito login and role-based access
+- Asset registration and inventory management
+- Secure photo upload and photo-assisted asset creation
+- Maintenance history and AI-assisted recommendations
+- Deterministic depreciation calculations
+- Security controls and CloudWatch monitoring
+
+### Verification commands
+
+Run the backend tests:
+
+    python3 -m unittest discover -s backend/tests -v
+
+Validate and build the infrastructure:
+
+    sam validate --lint --template-file infrastructure/template.yaml
+    sam build --template-file infrastructure/template.yaml --no-cached
+
+Build the frontend:
+
+    cd frontend
+    npm ci
+    npm run build
+    cd ..
+
+Check for whitespace errors:
+
+    git diff --check
+
+These local checks complement live authentication, authorization,
+photo-access, and monitoring verification.
+
+## Project Background and Contributions
+
+This project began from a collaborative starter repository:
+https://github.com/PellizzoniCode/saltracker
+
+This personal repository documents my work and learning across AWS SAM
+deployment, Lambda APIs, DynamoDB integration, Cognito authentication,
+frontend integration, secure photo workflows, Amazon Bedrock features,
+maintenance intelligence, testing, and monitoring.
+
+## Future Extension: SailPoint and Okta
+
+The next planned phase connects identity governance with enterprise
+authentication:
+
+- SailPoint for access requests, approvals, lifecycle provisioning,
+  access reviews, and segregation-of-duties policies
+- Okta for enterprise SSO and MFA
+- Cognito for federation and application token issuance
+- Lambda for application-role and asset-level authorization
+
+This integration is planned and is not part of the completed four-week
+implementation.
