@@ -150,7 +150,7 @@ class SecurityRequirementTests(unittest.TestCase):
 
         event = machine_event(
             "GET",
-            "/assets",
+            "/machine/assets",
             scope="asset-tracker/assets.read",
         )
 
@@ -162,7 +162,7 @@ class SecurityRequirementTests(unittest.TestCase):
     def test_machine_without_read_scope_is_rejected(self):
         event = machine_event(
             "GET",
-            "/assets",
+            "/machine/assets",
             scope="asset-tracker/assets.write",
         )
 
@@ -176,7 +176,7 @@ class SecurityRequirementTests(unittest.TestCase):
     def test_machine_write_scope_allows_asset_create(self):
         event = machine_event(
             "POST",
-            "/assets",
+            "/machine/assets",
             scope="asset-tracker/assets.write",
             body="{}",
         )
@@ -202,7 +202,7 @@ class SecurityRequirementTests(unittest.TestCase):
     def test_machine_cannot_access_maintenance_routes(self):
         event = machine_event(
             "GET",
-            "/assets/{assetId}/maintenance",
+            "/machine/assets/{assetId}/maintenance",
             asset_id="AST-SECURITY",
             scope=(
                 "asset-tracker/assets.read "
