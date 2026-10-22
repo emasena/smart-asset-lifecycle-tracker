@@ -404,6 +404,49 @@ Resources:
             RestApiId: !Ref AssetApi
             Path: /assets/{assetId}/maintenance-recommendation
             Method: POST
+        MachineCreateAsset:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AssetApi
+            Path: /machine/assets
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+              AuthorizationScopes:
+                - asset-tracker/assets.write
+
+        MachineListAssets:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AssetApi
+            Path: /machine/assets
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+              AuthorizationScopes:
+                - asset-tracker/assets.read
+
+        MachineGetAsset:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AssetApi
+            Path: /machine/assets/{assetId}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+              AuthorizationScopes:
+                - asset-tracker/assets.read
+
+        MachineUpdateAsset:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AssetApi
+            Path: /machine/assets/{assetId}
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
+              AuthorizationScopes:
+                - asset-tracker/assets.write
 
   PhotoUploadFunction:
     Type: AWS::Serverless::Function

@@ -101,25 +101,25 @@ def _is_machine_identity(claims):
         and claims.get("sub") == client_id
         and not claims.get("username")
     )
-
-
 def _machine_required_scope(method, route):
     normalized_route = (route or "").rstrip("/") or "/"
 
     if method == "GET" and normalized_route in {
-        "/assets",
-        "/assets/{assetId}",
+        "/machine/assets",
+        "/machine/assets/{assetId}",
     }:
         return "asset-tracker/assets.read"
 
-    if method in {"POST", "PUT"} and normalized_route in {
-        "/assets",
-        "/assets/{assetId}",
-    }:
+    if method == "POST" and normalized_route == "/machine/assets":
+        return "asset-tracker/assets.write"
+
+    if (
+        method == "PUT"
+        and normalized_route == "/machine/assets/{assetId}"
+    ):
         return "asset-tracker/assets.write"
 
     return None
-
 
 def _authorize_machine(claims, method, route):
     if not _is_machine_identity(claims):
