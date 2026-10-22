@@ -38,6 +38,36 @@ Resources:
       Principal: cognito-idp.amazonaws.com
       SourceAccount: !Ref AWS::AccountId
       SourceArn: !Sub arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
+  
+  AssetTrackerResourceServer:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      UserPoolId: !Ref UserPoolId
+      Identifier: asset-tracker
+      Name: Smart Asset Tracker API
+      Scopes:
+        - ScopeName: assets.read
+          ScopeDescription: Read asset records
+        - ScopeName: assets.write
+          ScopeDescription: Create and update asset records
+
+  AssetImportServiceClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: AssetTrackerResourceServer
+    Properties:
+      UserPoolId: !Ref UserPoolId
+      ClientName: !Sub asset-import-service-${Environment}
+      GenerateSecret: true
+      EnableTokenRevocation: true
+      AccessTokenValidity: 15
+      TokenValidityUnits:
+        AccessToken: minutes
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - client_credentials
+      AllowedOAuthScopes:
+        - asset-tracker/assets.read
+        - asset-tracker/assets.write
 
 Outputs:
   PreTokenGenerationFunctionArn:
@@ -47,3 +77,11 @@ Outputs:
   PreTokenGenerationFunctionName:
     Description: Cognito pre-token generation Lambda name
     Value: !Ref PreTokenGenerationFunction
+
+  AssetImportServiceClientId:
+    Description: Cognito application client ID for asset-import-service
+    Value: !Ref AssetImportServiceClient
+
+  AssetTrackerResourceServerIdentifier:
+    Description: OAuth resource server identifier
+    Value: !Ref AssetTrackerResourceServer
