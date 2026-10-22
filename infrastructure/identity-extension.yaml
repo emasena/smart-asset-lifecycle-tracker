@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Identity extensions for the AWS Smart Asset Lifecycle Tracker
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+
+  UserPoolId:
+    Type: String
+    Description: Existing Asset Tracker Cognito user pool ID
+
+Resources:
+  PreTokenGenerationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub smart-asset-pre-token-${Environment}
+      Description: Maps approved Okta groups to Asset Tracker application roles
+      CodeUri: ../backend/pre_token_generation/
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+      MemorySize: 128
+      Timeout: 5
+      Tracing: Active
+
+  CognitoInvokePreTokenPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PreTokenGenerationFunction
+      Action: lambda:InvokeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
+
+Outputs:
+  PreTokenGenerationFunctionArn:
+    Description: Cognito pre-token generation Lambda ARN
+    Value: !GetAtt PreTokenGenerationFunction.Arn
+
+  PreTokenGenerationFunctionName:
+    Description: Cognito pre-token generation Lambda name
+    Value: !Ref PreTokenGenerationFunction

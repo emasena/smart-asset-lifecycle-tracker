@@ -1,9 +1,53 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Authenticator } from "@aws-amplify/ui-react";
-import { fetchAuthSession } from "aws-amplify/auth";
+import { fetchAuthSession,
+  signInWithRedirect, } from "aws-amplify/auth";
 
 const API_URL = import.meta.env.VITE_API_URL;
+function OktaSignInFooter() {
+  const [error, setError] = useState("");
 
+  async function startOktaSignIn() {
+    setError("");
+
+    try {
+      await signInWithRedirect({
+        provider: { custom: "Okta" },
+      });
+    } catch (signInError) {
+      setError(
+        signInError?.message ||
+          "Unable to start Okta sign-in."
+      );
+    }
+  }
+
+  return (
+    <div className="okta-sign-in">
+      <p>Or use your organization account</p>
+
+      <button
+        type="button"
+        className="secondary"
+        onClick={startOktaSignIn}
+      >
+        Sign in with Okta
+      </button>
+
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+const authenticatorComponents = {
+  SignIn: {
+    Footer: OktaSignInFooter,
+  },
+};
 const emptyAsset = {
   assetTag: "",
   category: "Laptop",
@@ -1367,5 +1411,14 @@ if (maintenanceAsset) {
 }
 
 export default function App() {
-  return <Authenticator>{({ signOut, user }) => <AssetApplication signOut={signOut} user={user} />}</Authenticator>;
+  return (
+    <Authenticator components={authenticatorComponents}>
+      {({ signOut, user }) => (
+        <AssetApplication
+          signOut={signOut}
+          user={user}
+        />
+      )}
+    </Authenticator>
+  );
 }
