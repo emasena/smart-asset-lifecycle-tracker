@@ -83,6 +83,71 @@ def _identity(event):
     claims = event.get("requestContext", {}).get("authorizer", {}).get("claims") or {}
     return claims, parse_groups(claims.get("cognito:groups"))
 
+def _oauth_scopes(claims):
+    return {
+        scope
+        for scope in (claims.get("scope") or "").split()
+        if scope
+    }
+
+
+def _is_machine_identity(claims):
+    """Identify Cognito client-credentials access tokens."""
+    client_id = claims.get("client_id")
+
+    return bool(
+        claims.get("token_use") == "access"
+        and client_id
+        and claims.get("sub") == client_id
+        and not claims.get("username")
+    )
+
+
+def _machine_required_scope(method, route):
+    normalized_route = (route or "").rstrip("/") or "/"
+
+    if method == "GET" and normalized_route in {
+        "/assets",
+        "/assets/{assetId}",
+    }:
+        return "asset-tracker/assets.read"
+
+    if method in {"POST", "PUT"} and normalized_route in {
+        "/assets",
+        "/assets/{assetId}",
+    }:
+        return "asset-tracker/assets.write"
+
+    return None
+
+
+def _authorize_machine(claims, method, route):
+    if not _is_machine_identity(claims):
+        return None
+
+    required_scope = _machine_required_scope(method, route)
+
+    if not required_scope:
+        return response(
+            403,
+            {
+                "error": "Forbidden",
+                "message": (
+                    "This machine identity cannot access this operation."
+                ),
+            },
+        )
+
+    if required_scope not in _oauth_scopes(claims):
+        return response(
+            403,
+            {
+                "error": "InsufficientScope",
+                "message": f"The {required_scope} scope is required.",
+            },
+        )
+
+    return True
 
 def _asset_key(asset_id):
     return {"PK": f"ASSET#{asset_id}", "SK": "METADATA"}
@@ -1167,6 +1232,19 @@ def lambda_handler(event, _context):
     maintenance_id = path_parameters.get("maintenanceId")
     route = event.get("resource") or event.get("path") or ""
     claims, groups = _identity(event)
+
+    machine_authorization = _authorize_machine(
+        claims,
+        method,
+        route,
+    )
+
+    if isinstance(machine_authorization, dict):
+        return machine_authorization
+
+    if machine_authorization is True:
+        # Machine access is already constrained by route and OAuth scope.
+        groups = {"Administrator"}
 
     if not claims.get("sub"):
         return response(
