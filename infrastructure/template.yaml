@@ -639,58 +639,10 @@ Resources:
   # (see "Migrating an existing deployment" in docs/cloudwatch-monitoring.md).
   # Retain keeps logs when the stack or a resource is deleted/replaced, and is
   # required for CloudFormation resource import.
-  AssetApiLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      LogGroupName: !Sub /aws/lambda/smart-asset-api-${Environment}
-      RetentionInDays: 30
-
-  HealthLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      LogGroupName: !Sub /aws/lambda/smart-asset-health-${Environment}
-      RetentionInDays: 14
-
-  PhotoUploadLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      LogGroupName: !Sub /aws/lambda/smart-asset-photo-upload-${Environment}
-      RetentionInDays: 14
-
-  PhotoAnalysisLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      LogGroupName: !Sub /aws/lambda/smart-asset-photo-analysis-${Environment}
-      RetentionInDays: 30
-
-  PhotoAnalysisApiLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      LogGroupName: !Sub /aws/lambda/smart-asset-photo-analysis-api-${Environment}
-      RetentionInDays: 14
-
-  MaintenanceSchedulerLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      LogGroupName: !Sub /aws/lambda/smart-asset-maintenance-scheduler-${Environment}
-      RetentionInDays: 30
-
-  AssetApiErrorsAlarm:
+  AssetApiErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub smart-asset-api-${Environment}-errors
+      AlarmName: !Sub smart-asset-api-errors-${Environment}
       AlarmDescription: Asset API Lambda returned errors
       Namespace: AWS/Lambda
       MetricName: Errors
@@ -706,29 +658,10 @@ Resources:
       AlarmActions: [!Ref AlertsTopic]
       OKActions: [!Ref AlertsTopic]
 
-  AssetApiThrottlesAlarm:
+  MaintenanceSchedulerErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub smart-asset-api-${Environment}-throttles
-      AlarmDescription: Asset API Lambda was throttled
-      Namespace: AWS/Lambda
-      MetricName: Throttles
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref AssetApiFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-      AlarmActions: [!Ref AlertsTopic]
-      OKActions: [!Ref AlertsTopic]
-
-  MaintenanceSchedulerErrorsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub smart-asset-maintenance-scheduler-${Environment}-errors
+      AlarmName: !Sub smart-asset-scheduler-errors-${Environment}
       AlarmDescription: >-
         Maintenance scheduler Lambda returned errors (it runs on a schedule,
         so failures are otherwise silent)
@@ -805,10 +738,10 @@ Resources:
       AlarmActions: [!Ref AlertsTopic]
       OKActions: [!Ref AlertsTopic]
 
-  ApiGateway5xxAlarm:
+  AssetApiGateway5xxAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub smart-asset-api-${Environment}-5xx
+      AlarmName: !Sub smart-asset-api-5xx-${Environment}
       AlarmDescription: API Gateway returned server errors
       Namespace: AWS/ApiGateway
       MetricName: 5XXError
