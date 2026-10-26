@@ -20,7 +20,7 @@ Okta enterprise federation is implemented. SailPoint remains a future extension 
 
 ## Architecture
 
-See [`docs/architecture.md`](docs/architecture.md), [`docs/data-model.md`](docs/data-model.md), [`docs/role-permissions.md`](docs/role-permissions.md), and [`docs/sailpoint-integration.md`](docs/sailpoint-integration.md).
+See [`docs/architecture.md`](docs/architecture.md), [`docs/data-model.md`](docs/data-model.md), [`docs/role-permissions.md`](docs/role-permissions.md).
 
 ## Architecture diagrams
 
