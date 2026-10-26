@@ -1,6 +1,6 @@
 # AWS Smart Asset Lifecycle Tracker
 
-A secure serverless asset-management application built with Amazon Cognito, API Gateway, Lambda, DynamoDB, S3, Amazon Bedrock, EventBridge, SNS, and CloudWatch. SailPoint is planned as the identity-governance and lifecycle-provisioning layer while Cognito remains the application's authentication and JWT provider.
+A secure serverless asset-management application built with Okta federation, Amazon Cognito, API Gateway, Lambda, DynamoDB, S3, Amazon Bedrock, EventBridge, SQS, SNS, and CloudWatch. It supports role-based human access and OAuth 2.0 client-credentials access for non-human workloads. SailPoint remains planned as the identity-governance and lifecycle-provisioning layer.
 
 ## Current milestone
 
@@ -10,12 +10,13 @@ The four-week project and final application demonstration are complete.
 - **Week 2:** Private S3 photo storage, authorized photo access, and Amazon Bedrock photo analysis.
 - **Week 3:** Maintenance history, deterministic depreciation, AI-assisted recommendations, and scheduled notifications.
 - **Week 4:** Security testing, CloudWatch monitoring, deployment verification, and final project documentation.
+- **Enterprise identity extension:** Okta OIDC federation, trusted group-to-role mapping, separation-of-duties enforcement, and OAuth 2.0 machine identities with scoped API access.
 
 **Live application:** https://main.dx980x98nt3d5.amplifyapp.com/
 
 The application requires an authorized account. Access depends on the user's assigned role and asset scope.
 
-SailPoint and Okta integration is planned as a future extension for identity governance, lifecycle provisioning, enterprise SSO, and MFA.
+Okta enterprise federation is implemented. SailPoint remains a future extension for identity governance, lifecycle provisioning, access requests, certifications, and enterprise separation-of-duties policy management.
 
 ## Architecture
 
@@ -23,7 +24,22 @@ See [`docs/architecture.md`](docs/architecture.md), [`docs/data-model.md`](docs/
 
 ## Architecture diagrams
 
+![Enterprise identity and machine-access architecture](docs/architecture/smart-asset-enterprise-identity.svg)
+
 See [`docs/architecture/README.md`](docs/architecture/README.md) for the complete four-week target architecture and the weekly architecture progression diagrams.
+
+## Enterprise identity and machine access
+
+- Okta federates to Amazon Cognito through OpenID Connect.
+- A Cognito pre-token generation Lambda maps approved Okta groups into trusted application roles.
+- Conflicting Administrator and Auditor assignments are rejected to enforce separation of duties.
+- Native Cognito authentication remains available alongside Okta sign-in.
+- OAuth 2.0 client credentials provide non-human access without using employee accounts.
+- `asset-tracker/assets.read` and `asset-tracker/assets.write` scopes enforce least privilege.
+- Dedicated `/machine/assets` routes separate machine operations from human-only workflows.
+- API Gateway validates OAuth scopes, and Lambda applies an additional route and scope allowlist.
+- Machine identities cannot access maintenance routes.
+- Application and monitoring resources are managed by separate drift-free CloudFormation stacks.
 
 ## Prerequisites
 
@@ -334,16 +350,13 @@ deployment, Lambda APIs, DynamoDB integration, Cognito authentication,
 frontend integration, secure photo workflows, Amazon Bedrock features,
 maintenance intelligence, testing, and monitoring.
 
-## Future Extension: SailPoint and Okta
+## Future Extension: SailPoint Identity Governance
 
-The next planned phase connects identity governance with enterprise
-authentication:
+Okta federation, Cognito token issuance, trusted role mapping, and Lambda authorization are implemented. The next planned phase adds SailPoint for:
 
-- SailPoint for access requests, approvals, lifecycle provisioning,
-  access reviews, and segregation-of-duties policies
-- Okta for enterprise SSO and MFA
-- Cognito for federation and application token issuance
-- Lambda for application-role and asset-level authorization
-
-This integration is planned and is not part of the completed four-week
-implementation.
+- Joiner, mover, and leaver lifecycle governance
+- Access requests and approval workflows
+- Provisioning and deprovisioning of Okta group membership
+- Access certifications and periodic reviews
+- Enterprise role governance and segregation-of-duties policies
+- Audit evidence and identity lifecycle reporting
