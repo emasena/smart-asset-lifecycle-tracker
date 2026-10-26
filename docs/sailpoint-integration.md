@@ -1,8 +1,10 @@
 # SailPoint integration design
 
+> **Status: Planned design only — SailPoint is not currently implemented or deployed.**
+
 ## Purpose
 
-SailPoint Identity Security Cloud or IdentityIQ governs access to the Asset Tracker. Amazon Cognito remains the application's authentication service and JWT issuer.
+This document describes a planned integration in which SailPoint Identity Security Cloud or IdentityIQ would govern access to the Asset Tracker. SailPoint is not currently connected to the application. Amazon Cognito is the implemented authentication service and JWT issuer.
 
 ## Integration pattern
 
@@ -72,7 +74,7 @@ Manager, Technician, Administrator, and Auditor are governed elevated-access pro
 - Certify Manager access by department manager.
 - Record the request, approval, fulfillment, and revocation trail in SailPoint.
 
-## Demonstration scenario
+## Planned demonstration scenario
 
 1. Aggregate the five Cognito groups into SailPoint.
 2. Request the Technician access profile for a test identity.
