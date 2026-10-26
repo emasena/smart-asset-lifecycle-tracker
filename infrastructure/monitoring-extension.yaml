@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Existing monitoring resources for the Smart Asset Tracker
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+
+  AlertsTopicArn:
+    Type: String
+    Description: SNS topic ARN used by the imported alarms
+
+Resources:
+  AssetApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/smart-asset-api-${Environment}
+      RetentionInDays: 30
+
+  HealthLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/smart-asset-health-${Environment}
+      RetentionInDays: 14
+
+  PhotoUploadLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/smart-asset-photo-upload-${Environment}
+      RetentionInDays: 30
+
+  PhotoAnalysisLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/smart-asset-photo-analysis-${Environment}
+      RetentionInDays: 30
+
+  PhotoAnalysisApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/smart-asset-photo-analysis-api-${Environment}
+      RetentionInDays: 30
+
+  MaintenanceSchedulerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/smart-asset-maintenance-scheduler-${Environment}
+      RetentionInDays: 30
+
+  AssetApiThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AlarmName: !Sub smart-asset-api-${Environment}-throttles
+      AlarmDescription: Asset API Lambda was throttled
+      ActionsEnabled: true
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions:
+        - Name: FunctionName
+          Value: !Sub smart-asset-api-${Environment}
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertsTopicArn
+      OKActions:
+        - !Ref AlertsTopicArn
