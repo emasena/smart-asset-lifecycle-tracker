@@ -1,4 +1,5 @@
 # AWS Smart Asset Lifecycle Tracker
+[![CI](https://github.com/emasena/smart-asset-lifecycle-tracker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/emasena/smart-asset-lifecycle-tracker/actions/workflows/ci.yml)
 
 A secure serverless asset-management application built with Okta federation, Amazon Cognito, API Gateway, Lambda, DynamoDB, S3, Amazon Bedrock, EventBridge, SQS, SNS, and CloudWatch. It supports role-based human access and OAuth 2.0 client-credentials access for non-human workloads. SailPoint remains planned as the identity-governance and lifecycle-provisioning layer.
 
